@@ -137,3 +137,6 @@ dist
 
 # Local VFX capture scratch (dev tooling)
 .captures/
+
+# Headless-Chrome test output: screenshots, run logs, CDP reports
+output/
