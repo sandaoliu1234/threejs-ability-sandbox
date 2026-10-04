@@ -1855,13 +1855,18 @@ export class Editor {
     R(player, p, 'groundRadius', 8, 40, 1, '活动半径');
     R(player, p, 'walkLean', 0, 0.5, 0.01, '跑动前倾');
     R(player, p, 'walkSwing', 0, 1.2, 0.01, '步幅摆动');
+    R(player, p, 'walkKnee', 0, 2.5, 0.05, '屈膝幅度');
+    R(player, p, 'walkKneeLag', 0, 2.5, 0.05, '屈膝滞后');
+    R(player, p, 'strideLength', 0.6, 6, 0.1, '每周期步长');
     const dash = player.addFolder('翻滚 (空格)');
     R(dash, p, 'dashSpeed', 4, 30, 0.5, '冲刺速度');
     R(dash, p, 'dashTime', 0.05, 0.5, 0.01, '冲刺时长');
     R(dash, p, 'dashCooldown', 0.2, 5, 0.05, '冷却');
+    R(dash, p, 'dashChainWindow', 0, 2, 0.02, '连滚窗口');
     R(dash, p, 'dashInvuln', 0, 1.5, 0.01, '闪避无敌');
     R(dash, p, 'rollTime', 0.15, 0.8, 0.01, '翻滚时长');
     R(dash, p, 'rollHeight', 0, 1.5, 0.05, '跃起高度');
+    R(dash, p, 'rollTuck', 0, 1.5, 0.05, '收身抱团');
 
     const drops = this.gui.addFolder('💰  掉落');
     drops.add(settings.drops, 'enabled').name('开启');

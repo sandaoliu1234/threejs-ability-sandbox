@@ -258,16 +258,27 @@ export const settings = {
     regenDelay: 5.0, // seconds of grace since the last hit before it kicks in
     hurtInvuln: 0.5, // seconds of immunity after taking a hit
     walkLean: 0.14, // radians the torso pitches into the run
-    walkSwing: 0.55, // radians the thighs swing through the walk cycle
+    walkSwing: 0.42, // radians the thighs swing through the walk cycle
+    walkKnee: 1.15, // knee flexion, as a fraction of `walkSwing`, at its peak
+    walkKneeLag: 0.6, // radians the knee trails the hip: the heel folds *after*
+    // the leg passes behind, which is what makes it read as a step and not a kick
+    strideLength: 2.6, // metres the ground covers per walk cycle, so the cadence
+    // follows the real speed instead of a fixed rate (the feet stop skating when
+    // the pace track is bought)
 
     /* --- the dash (Space): a shove of velocity with a full flip over it --- */
     dashSpeed: 16, // metres/second while dashing
     dashTime: 0.16, // seconds the shove lasts
     dashCooldown: 1.5,
     dashInvuln: 0.3, // the grace window it grants
+    dashChainWindow: 0.42, // seconds after a roll lands during which Space rolls
+    // again for free (mashing the dodge keeps the chain alive; letting the window
+    // lapse pays the cooldown)
     rollTime: 0.34, // seconds the somersault takes (longer than the shove —
     // the body lands upright while the last of the momentum dies)
-    rollHeight: 0.6 // metres the hop peaks at, so the flip clears the floor
+    rollHeight: 0.6, // metres the hop peaks at, so the flip clears the floor
+    rollTuck: 1.0 // 0..1 master for how hard the body balls up mid-flip; at 0 the
+    // limbs hang where the run left them, which reads as a fall rather than a roll
   },
 
   /* ------------------------------------------------------------------ */

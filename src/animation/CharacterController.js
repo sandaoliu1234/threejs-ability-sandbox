@@ -29,6 +29,25 @@ const _walkQ = new Quaternion();
 const _pitchAxis = new Vector3(1, 0, 0);
 
 /**
+ * How far each joint balls up at the peak of the somersault, in radians, before
+ * `settings.player.rollTuck` scales the lot. The ratios are what make a tuck
+ * look like a tuck: the knee folds harder than the hip, and the elbow harder
+ * than the shoulder, so the body closes on itself instead of folding flat.
+ */
+const ROLL_TUCK = {
+  hip: 1.35,
+  knee: 1.7,
+  arm: 1.05,
+  elbow: 1.5
+};
+
+/** Hermite smoothstep, for envelopes that must leave no kink at either end. */
+function _smooth(edge0, edge1, x) {
+  const t = Math.min(1, Math.max(0, (x - edge0) / Math.max(1e-6, edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
  * Loads the rigged FBX, normalises it for the scene and drives its animation.
  *
  * The character never leaves the spot — it breathes on a loop, turns to face
@@ -292,18 +311,48 @@ export class CharacterController {
    * @param {import('three').Object3D} root
    */
   _collectLocomotionBones(root) {
-    const bones = { thighs: [], shins: [], arms: [] };
+    const bones = { thighs: [], shins: [], arms: [], elbows: [] };
     const track = (short, node) => {
       const side = short.startsWith('Left') ? -1 : 1;
       if (short.endsWith('UpLeg')) bones.thighs.push({ bone: node, side });
       else if (short === 'LeftLeg' || short === 'RightLeg') bones.shins.push({ bone: node, side });
       else if (short === 'LeftArm' || short === 'RightArm') bones.arms.push({ bone: node, side });
+      else if (short === 'LeftForeArm' || short === 'RightForeArm') bones.elbows.push({ bone: node, side });
     };
     root.traverse((node) => {
       if (!node.isBone) return;
       track(node.name.split(':').pop().replace(/^mixamorig/i, ''), node);
     });
+    // One flat list of everything the procedural poses touch, each holding the
+    // quaternion the mixer last wrote — `update` restores from it so a pose can
+    // never stack on top of its own previous frame.
+    bones.posed = [...bones.thighs, ...bones.shins, ...bones.arms, ...bones.elbows];
+    for (const entry of bones.posed) entry.base = new Quaternion();
     return bones;
+  }
+
+  /**
+   * Remember the mixer's pose for this frame.
+   *
+   * The walk and the roll tuck are *multiplicative* — they compose onto the
+   * animated quaternion. That is only safe while the mixer keeps rewriting the
+   * bones, which it does when time advances but NOT at dt = 0. Pausing
+   * mid-stride therefore re-multiplied the same swing every frozen frame and
+   * cranked the character into a pretzel (measured: the ankle climbed ~0.16 m
+   * per zero-dt frame). Snapshot when the clock moves, restore when it does
+   * not, and the pose becomes idempotent either way.
+   */
+  _capturePoseBase() {
+    const posed = this._locomotionBones?.posed;
+    if (!posed) return;
+    for (const entry of posed) entry.base.copy(entry.bone.quaternion);
+  }
+
+  /** Undo last frame's stacked pose, leaving the mixer's own output. */
+  _restorePoseBase() {
+    const posed = this._locomotionBones?.posed;
+    if (!posed) return;
+    for (const entry of posed) entry.bone.quaternion.copy(entry.base);
   }
 
   /**
@@ -318,12 +367,23 @@ export class CharacterController {
    * the animated quaternion and scaled by `_stride`, so standing still is a
    * clean fade back to the idle and a cast keeps its gesture (the arms stand
    * down while a cast clip owns them).
+   *
+   * Two things decide whether it reads as a step or as a kick, and both were
+   * wrong: the knee must fold *backwards* (`-fold` — a shin rotated the same
+   * way as its thigh hyperextends, which throws the foot up and forward and is
+   * what made the walk look like a march), and it must fold *after* the leg has
+   * passed behind (`walkKneeLag`), because that is where the heel actually
+   * comes up.
    */
   _applyWalkPose() {
     const bones = this._locomotionBones;
-    if (!bones || this._stride < 0.02 || this._dead) return;
+    // The somersault owns the whole body: a walk cycle layered under a flip
+    // makes the legs flail, so stand the walk down while the roll is running.
+    if (!bones || this._stride < 0.02 || this._dead || this._rolling) return;
 
     const swingAmp = settings.player.walkSwing * this._stride;
+    const kneeAmp = swingAmp * settings.player.walkKnee;
+    const lag = settings.player.walkKneeLag;
     const phase = this._walkPhase;
 
     for (const { bone, side } of bones.thighs) {
@@ -332,10 +392,11 @@ export class CharacterController {
     }
 
     // The shin folds a beat behind its thigh — foot down through the reach,
-    // heel kicking up on the way through. Bends only ever fold one way.
+    // heel kicking up on the way through. Bends only ever fold one way, and
+    // "one way" is the negative rotation: toward the heel.
     for (const { bone, side } of bones.shins) {
-      const fold = Math.max(0, Math.sin(phase + (side < 0 ? -0.9 : Math.PI - 0.9))) * swingAmp * 1.35;
-      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, fold));
+      const fold = Math.max(0, Math.sin(phase + (side < 0 ? 0 : Math.PI) - lag)) * kneeAmp;
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, -fold));
     }
 
     // The arms counter-swing against their own legs — but only when a cast
@@ -345,6 +406,44 @@ export class CharacterController {
         const swing = Math.sin(phase + (side < 0 ? Math.PI : 0)) * swingAmp * 0.5;
         bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, swing));
       }
+    }
+  }
+
+  /**
+   * The tuck: knees up, heels in, arms crossed over the chest.
+   *
+   * A rigid body spun through a full circle reads as a fall no matter how the
+   * arc is eased; what sells a somersault is that the body *balls up* through
+   * the float and opens again for the floor. `settings.player.rollTuck` scales
+   * the whole thing, so the old stiff-flip look is one slider away.
+   *
+   * @param {number} p 0..1 through the roll
+   */
+  _applyRollPose(p) {
+    const bones = this._locomotionBones;
+    const amount = settings.player.rollTuck;
+    if (!bones || amount <= 0.001) return;
+
+    // Ball up fast off the launch, hold through the float, open for the floor.
+    const tuck = Math.min(_smooth(0, 0.22, p), 1 - _smooth(0.72, 1, p)) * amount;
+    if (tuck <= 0.001) return;
+
+    const hip = tuck * ROLL_TUCK.hip;
+    const knee = tuck * ROLL_TUCK.knee;
+    const shoulder = tuck * ROLL_TUCK.arm;
+    const elbow = tuck * ROLL_TUCK.elbow;
+
+    for (const { bone } of bones.thighs) {
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, hip));
+    }
+    for (const { bone } of bones.shins) {
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, -knee));
+    }
+    for (const { bone } of bones.arms) {
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, shoulder));
+    }
+    for (const { bone } of bones.elbows) {
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, -elbow));
     }
   }
 
@@ -442,13 +541,17 @@ export class CharacterController {
 
     // The dash somersault owns the whole posture while it plays: one eased
     // turn about the right axis, riding a hop arc that lifts the body so the
-    // inverted half clears the floor. It replaces lean, recoil and bob.
+    // inverted half clears the floor. It replaces lean, recoil and bob, and it
+    // balls the limbs up on the way through (`_applyRollPose`).
     if (this._rolling) {
       const p = Math.min(1, this._rollT / Math.max(0.01, settings.player.rollTime));
       const ease = p < 0.5 ? 2 * p * p : 1 - ((-2 * p + 2) ** 2) / 2;
       this.tilt.quaternion.setFromAxisAngle(this._rightAxis, ease * Math.PI * 2);
       this.tilt.position.set(0, 0, 0);
-      this.root.position.y = Math.sin(p * Math.PI) * settings.player.rollHeight;
+      // Hang at the top: a plain sine drops the body as fast as it lifted it,
+      // which reads as a hop. Biasing the curve keeps it up through the
+      // inverted half and still lands it flat.
+      this.root.position.y = Math.sin(p * Math.PI) ** 0.75 * settings.player.rollHeight;
       return;
     }
 
@@ -469,14 +572,27 @@ export class CharacterController {
   }
 
   /**
-   * Feed the walk: `speed01` is the current speed over the run speed. The
-   * stride is smoothed here so a stop doesn't snap upright, and the phase
-   * drives the little ground-eating bounce on the root.
+   * Feed the walk: `speed01` is the current speed over the run speed, `metres`
+   * the actual ground speed. The stride is smoothed here so a stop doesn't snap
+   * upright, and the phase drives the little ground-eating bounce on the root.
+   *
+   * The cadence comes from `strideLength` and the real speed, not from a fixed
+   * rate: one cycle should always carry the body the same distance, or the feet
+   * skate whenever the pace track is bought. `speed01` alone would do that only
+   * as long as the run speed never moved.
+   *
+   * @param {number} speed01
+   * @param {number} dt
+   * @param {number} [metres] ground speed in metres/second
    */
-  setLocomotion(speed01, dt) {
+  setLocomotion(speed01, dt, metres = 0) {
     const rate = speed01 > this._stride ? 7 : 4.5;
     this._stride += (speed01 - this._stride) * Math.min(1, rate * Math.max(dt, 0));
-    this._walkPhase += dt * (5 + 6 * this._stride);
+
+    const perSecond = metres > 0 ? metres : speed01 * settings.player.moveSpeed;
+    const cycle = Math.PI * 2 * (perSecond / Math.max(0.2, settings.player.strideLength));
+    this._walkPhase += Math.max(0, dt) * cycle;
+
     this.root.position.y = Math.abs(Math.sin(this._walkPhase)) * 0.055 * this._stride;
   }
 
@@ -536,8 +652,16 @@ export class CharacterController {
     this.mixer.timeScale = settings.global.animationSpeed;
     this.mixer.update(dt);
 
-    // The walk rides on top of the mixed pose — after it, so the swing wins
-    // over the idle's legs for this frame.
+    // Idempotent base for the stacked poses below (see `_capturePoseBase`).
+    if (dt !== 0) this._capturePoseBase();
+    else this._restorePoseBase();
+
+    // The roll tuck and the walk ride on top of the mixed pose — after it, so
+    // these swings win over the idle's limbs for this frame. A roll suppresses
+    // the walk itself (see `_applyWalkPose`), so only one of them ever writes.
+    if (this._rolling) {
+      this._applyRollPose(Math.min(1, this._rollT / Math.max(0.01, settings.player.rollTime)));
+    }
     this._applyWalkPose();
   }
 

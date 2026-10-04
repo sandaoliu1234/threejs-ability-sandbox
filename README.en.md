@@ -104,7 +104,7 @@ whole cage is that same ribbon strip threaded along four different parametric pa
 targeting circle, the rime, the burns and the molten cracks are signed-distance and noise shaders,
 and the mist, sparks, chips and glitter are GPU particles.
 
-**Every parameter is a live slider** — 1325 of them — and they stay live while the simulation is
+**Every parameter is a live slider** — 1330 of them — and they stay live while the simulation is
 paused. That is the point of the project: freeze a frame mid-eruption, mid-strike or mid-burn with
 **P**, then reshape the silhouette, the palette and the timing against a still image.
 
@@ -165,6 +165,14 @@ the camera", whichever way you have orbited, and diagonal input is normalised so
 is not faster. The arena is held by `groundRadius` at 24 m: past that the position is eased back
 toward the origin — no wall, just a soft edge.
 
+The legs are **procedural**. The rig ships with a standing Idle and a handful of cast clips and nothing
+that steps, so the walk is phase-driven and composed on top of whatever the mixer wrote: thighs swing
+in opposition (`walkSwing`), each shin folds **toward its heel** (`walkKnee`) and only **after the leg
+has passed behind** (`walkKneeLag`), arms counterweight. The direction the knee folds is the whole
+reason it reads as a step instead of a kick: a shin rotated the same way as its thigh hyperextends and
+throws the foot 70 cm forward and 60 cm up. The phase is advanced by **distance actually travelled** —
+one cycle covers `strideLength` metres — so buying pace raises the cadence instead of skating.
+
 Health is 100 points (`maxHp`), regenerating at 2 points a second once 5 seconds have passed without
 a hit (`regen` / `regenDelay`). Both numbers are deliberately sleepy: enough to be full again between
 two waves, not enough to outlast a gang-up. A hit flashes the screen, shakes the camera and hands you
@@ -177,7 +185,15 @@ straight through. A full somersault rides on top of the shove: `rollTime` is 0.3
 dash itself, the body tucks and flips a complete turn about its own right axis and peaks 0.6 m off
 the floor (`rollHeight`), so it lands back on its feet *after* the momentum has spent itself. The
 flip runs on its own clock, which is exactly why it can finish rolling before it stands up. Dying
-mid-roll stands the flip down and lets the fall take the posture over.
+mid-roll stands the flip down and lets the fall take the posture over. Through the airborne half the
+limbs **ball up** (`rollTuck`): knees fold harder than hips and elbows harder than shoulders, so what
+turns over is a tucked body rather than a stiff one — full tuck within the first 22%, released before
+it lands.
+
+**Mashing Space chains rolls.** A press during a roll is not dropped: its direction is remembered and
+it takes over on the frame that roll ends, so pressing inside the `dashChainWindow` (0.42 s) keeps the
+body rolling without waiting out the cooldown. It is queued rather than restarted because re-launching
+mid-flip would yank the body off the top of its arc — mashing would read as a twitch, not a chain.
 
 At zero health the character goes down and a card comes up with the run's numbers — kills, waves
 survived, gold picked up. **Enter**, or the button on the card, starts a new run: gold and all four
@@ -823,8 +839,8 @@ off the screen.
 - **Sound** — the on/off switch, the master, and faders for the cast, impact, combat and UI channels.
   They apply live, so `impact` can be pulled down while a cast is still in the air.
 - **Player** — max health, regen rate and delay, hurt invulnerability, move speed, arena radius, walk
-  lean and stride swing, plus a **Somersault (Space)** subfolder (dash speed and time, cooldown, dodge
-  i-frames, roll time, hop height).
+  lean, stride swing, knee bend and its lag, metres per cycle, plus a **Somersault (Space)** subfolder
+  (dash speed and time, cooldown, dodge i-frames, roll time, hop height, tuck, chain window).
 - **Drops** — on/off, the gold floor and ceiling and its lifetime, the magnet and pickup radii, the
   heal-orb chance and amount, and the colours of both drops.
 - **Upgrades** — the base cost and the price curve, the per-level gain of each of the four tracks, and

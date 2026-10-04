@@ -476,7 +476,7 @@ export class App {
       position.z *= radius / dist;
     }
 
-    this.character.setLocomotion(speed01, dt);
+    this.character.setLocomotion(speed01, dt, Math.hypot(vx, vz));
 
     // Facing: the armed arrow owns the body; otherwise the walk steers it.
     if (this.aim.isArmed) {
@@ -723,7 +723,9 @@ export class App {
       this.player.maxHp
     );
     this.hud.setDash(
-      this.player.dashCooldownLeft / Math.max(0.001, settings.player.dashCooldown)
+      this.player.canDash
+        ? 0
+        : this.player.dashCooldownLeft / Math.max(0.001, settings.player.dashCooldown)
     );
 
     // The shop's numbers only move when gold does.

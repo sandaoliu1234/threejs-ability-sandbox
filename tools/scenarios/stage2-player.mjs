@@ -408,6 +408,122 @@ export default async function (ctx) {
   h.rec('after the roll, walking again', settled);
   h.expect(settled.rolling === false && settled.y < 0.08, 'walking resumes with the normal gait, not the roll', settled);
 
+  // --- the gait, the pause, and the chain ---------------------------------
+  // Three regressions from one pass over the movement. Two of them were only
+  // visible as silhouette problems (a leg that kicked instead of stepping, a
+  // roll whose limbs stayed stiff), so they are pinned here as geometry.
+
+  await ctx.evaluate(`(() => {
+    const app = window.app;
+    const c = app.character;
+    app.input.keys.clear();
+    c._rolling = false;
+    c._dead = false;
+    c._stride = 1;
+    window.__bone = (short) => {
+      let hit = null;
+      c.tilt.traverse((o) => {
+        if (hit || !o.isBone) return;
+        if (o.name.split(':').pop().replace(/^mixamorig/i, '') === short) hit = o;
+      });
+      return hit;
+    };
+    window.__at = (short) => {
+      const v = new c.root.position.constructor();
+      window.__bone(short).getWorldPosition(v);
+      return [+v.x.toFixed(4), +v.y.toFixed(4), +v.z.toFixed(4)];
+    };
+    window.__gait = (phase) => {
+      c._walkPhase = phase;
+      c.update(0);
+      return { lFoot: window.__at('LeftFoot'), rFoot: window.__at('RightFoot'), lKnee: window.__at('LeftLeg'), rKnee: window.__at('RightLeg') };
+    };
+    return true;
+  })()`);
+
+  // A step, not a kick: the shin folds BACKWARDS from the knee (a shin rotated
+  // the same way as its thigh hyperextends and throws the foot up and forward),
+  // so through the whole cycle the ankle must stay at or below its knee.
+  const gait = await ctx.evaluate(`(() => {
+    const out = {};
+    for (const p of [0, 1.5708, 3.1416, 4.7124]) out['p' + p] = window.__gait(p);
+    return out;
+  })()`);
+  h.rec('the walk at four phases', gait);
+  for (const [phase, s] of Object.entries(gait)) {
+    h.expect(
+      s.lFoot[1] <= s.lKnee[1] + 0.05 && s.rFoot[1] <= s.rKnee[1] + 0.05,
+      'the knee folds backwards: no ankle rises above its knee (' + phase + ')',
+      { lFoot: s.lFoot[1], lKnee: s.lKnee[1], rFoot: s.rFoot[1], rKnee: s.rKnee[1] }
+    );
+    h.expect(
+      Math.abs(s.lFoot[1]) < 0.35 && Math.abs(s.rFoot[1]) < 0.35,
+      'the swing foot stays under a third of a metre (' + phase + ')',
+      { lFoot: s.lFoot[1], rFoot: s.rFoot[1], note: 'hyperextension measured 0.62 before the fix' }
+    );
+  }
+
+  // The stacked poses are multiplicative, and the mixer only rewrites the bones
+  // when time advances. Re-applying them on a frozen frame used to crank the
+  // character into a pretzel: the ankle climbed ~0.16m per zero-dt frame.
+  const frozen = await ctx.evaluate(`(() => {
+    const c = window.app.character;
+    c._stride = 1;
+    c._walkPhase = 1.0;
+    c.update(0);
+    const first = window.__at('LeftFoot');
+    for (let i = 0; i < 12; i++) c.update(0);
+    const last = window.__at('LeftFoot');
+    return { first: first, last: last, drift: +Math.hypot(last[0] - first[0], last[1] - first[1], last[2] - first[2]).toFixed(5) };
+  })()`);
+  h.rec('twelve paused frames mid-stride', frozen);
+  h.expect(frozen.drift < 1e-3, 'a paused frame re-applies the gait without stacking it', frozen);
+
+  // Hammering the dodge: a press during a roll is remembered and takes over the
+  // frame that roll ends, so the chain keeps going without waiting out the
+  // cooldown — and outside the window the cooldown still refuses.
+  const chain = await ctx.evaluate(`(() => {
+    const p = window.app.player;
+    const s = window.__settings;
+    window.app.input.keys.clear();
+    p._dashCooldown = 0; p._sinceDash = Infinity; p.dashTimeLeft = 0;
+    p._dashQueuedX = 0; p._dashQueuedZ = 0;
+    const first = p.dash(1, 0);
+    const midRoll = p.dash(0, 1);
+    const reserved = { x: p._dashQueuedX, z: p._dashQueuedZ };
+    let launches = 0;
+    let prev = p.dashTimeLeft;
+    for (let i = 0; i < 60; i++) {
+      p.dash(1, 0);
+      p.update(1 / 60);
+      // A chained roll restarts on the very frame the previous one ends, so
+      // the dash timer never reads zero between them — count the restarts.
+      if (p.dashTimeLeft > prev + 1e-6) launches++;
+      prev = p.dashTimeLeft;
+    }
+    const rolled = launches;
+    // Outside the chain window the cooldown is back in charge.
+    p.dashTimeLeft = 0; p._sinceDash = 99; p._dashCooldown = 1.0;
+    const blocked = { can: p.canDash, dash: p.dash(1, 0) };
+    // Surviving the roll puts the press inside the window.
+    p.dashTimeLeft = 0; p._sinceDash = s.player.dashChainWindow * 0.5; p._dashCooldown = 1.0;
+    const windowed = p.canDash;
+    p.dashTimeLeft = 0; p._dashCooldown = 0; p._sinceDash = Infinity;
+    return { first: first, midRoll: midRoll, reserved: reserved, launches: rolled, blocked: blocked, windowed: windowed };
+  })()`);
+  h.rec('hammering the dodge for a second', chain);
+  h.expect(chain.first === true && chain.midRoll === false, 'a press mid-roll is reserved, not restarted', chain);
+  h.expect(
+    chain.reserved.x === 0 && chain.reserved.z === 1,
+    'the reserved press keeps its own direction', chain.reserved
+  );
+  h.expect(chain.launches >= 5, 'mashing dodge chains rolls back to back', { launches: chain.launches, note: 'dashTime 0.16s in a 1s window' });
+  h.expect(
+    chain.blocked.can === false && chain.blocked.dash === false,
+    'outside the chain window the cooldown still refuses', chain.blocked
+  );
+  h.expect(chain.windowed === true, 'inside the chain window the cooldown is waived', { windowed: chain.windowed });
+
   await ctx.evaluate(`(() => {
     window.__restoreHurt?.();
     window.__restoreDeath?.();

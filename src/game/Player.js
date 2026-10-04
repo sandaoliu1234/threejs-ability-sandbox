@@ -33,6 +33,9 @@ export class Player {
     /** Unit direction the dash is carrying the body, XZ. */
     this.dashDirX = 0;
     this.dashDirZ = 0;
+    /** Set by the next dash pressed while one is already in flight. */
+    this._dashQueuedX = 0;
+    this._dashQueuedZ = 0;
 
     this.reset();
   }
@@ -82,6 +85,9 @@ export class Player {
     this._sinceHit = Infinity;
     this.dashTimeLeft = 0;
     this._dashCooldown = 0;
+    this._sinceDash = Infinity;
+    this._dashQueuedX = 0;
+    this._dashQueuedZ = 0;
   }
 
   /**
@@ -154,21 +160,44 @@ export class Player {
    * Start a dash toward a unit XZ direction. Refused while cooling down or
    * dead; grants its invulnerability window on the way.
    *
+   * The dodge chains. A press while a roll is already in flight is *queued*
+   * rather than started — restarting the flip mid-air would snap the body back
+   * to the top of the arc and mashing Space would look like a twitch instead of
+   * a run of rolls. The queued one launches the instant the body lands, and
+   * anything pressed inside `dashChainWindow` of that landing skips the
+   * cooldown too, so held-down Space keeps rolling; let the window lapse and
+   * the full cooldown is owed again.
+   *
    * @param {number} dirX
    * @param {number} dirZ
    */
   dash(dirX, dirZ) {
-    if (!this._alive || this._dashCooldown > 0) return false;
+    if (!this._alive) return false;
     const len = Math.hypot(dirX, dirZ);
     if (len < 1e-4) return false;
 
-    this.dashDirX = dirX / len;
-    this.dashDirZ = dirZ / len;
+    if (this.dashTimeLeft > 0) {
+      this._dashQueuedX = dirX / len;
+      this._dashQueuedZ = dirZ / len;
+      return false;
+    }
+
+    const chaining = this._sinceDash <= settings.player.dashChainWindow;
+    if (!chaining && this._dashCooldown > 0) return false;
+
+    this._startDash(dirX / len, dirZ / len);
+    return true;
+  }
+
+  /** The half of `dash` that actually moves the body, queue already resolved. */
+  _startDash(dirX, dirZ) {
+    this.dashDirX = dirX;
+    this.dashDirZ = dirZ;
     this.dashTimeLeft = settings.player.dashTime;
     this._dashCooldown = settings.player.dashCooldown;
     this._invuln = Math.max(this._invuln, settings.player.dashInvuln);
+    this._sinceDash = Infinity; // a roll in flight is not "since the last one"
     sfx.dash();
-    return true;
   }
 
   /** Seconds until the dash is ready again, for the HUD pip. */
@@ -176,10 +205,33 @@ export class Player {
     return this._dashCooldown;
   }
 
+  /**
+   * Whether Space would roll right now. The pip reads this rather than the raw
+   * clock so a roll chain does not draw a cooldown you are allowed to ignore.
+   */
+  get canDash() {
+    if (!this._alive || this.dashTimeLeft > 0) return false;
+    return this._dashCooldown <= 0 || this._sinceDash <= settings.player.dashChainWindow;
+  }
+
   update(dt) {
     this._invuln = Math.max(0, this._invuln - dt);
     this._dashCooldown = Math.max(0, this._dashCooldown - dt);
+
+    const wasDashing = this.dashTimeLeft > 0;
     this.dashTimeLeft = Math.max(0, this.dashTimeLeft - dt);
+
+    if (wasDashing && this.dashTimeLeft === 0) {
+      // The body just landed: start the chain clock and cash in a queued roll.
+      this._sinceDash = 0;
+      const qx = this._dashQueuedX;
+      const qz = this._dashQueuedZ;
+      this._dashQueuedX = 0;
+      this._dashQueuedZ = 0;
+      if (qx !== 0 || qz !== 0) this._startDash(qx, qz);
+    } else if (!wasDashing) {
+      this._sinceDash += dt;
+    }
 
     if (this._alive) {
       this._sinceHit += dt;
