@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import { settings } from '../config/settings.js';
+import { sfx } from '../audio/Sound.js';
 
 /**
  * Additive camera shake driven by layered noise.
@@ -28,6 +29,9 @@ export class CameraShake {
     this.trauma = Math.min(1, this.trauma + amount * settings.global.cameraShake);
     this.decay = decay;
     this.frequency = frequency;
+    // Every impact in the sandbox already converges on this call, which makes
+    // it the one place the boom lives. The sound has its own retrigger gate.
+    sfx.impact(amount);
   }
 
   /** Sustained rumble (earth). Call every frame while the effect lasts. */

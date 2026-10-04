@@ -223,6 +223,100 @@ export const settings = {
   },
 
   /* ------------------------------------------------------------------ */
+  /* Sound — everything synthesised, nothing on disk                     */
+  /* ------------------------------------------------------------------ */
+  /**
+   * The mix desk for `src/audio/Sound.js`. Master rides over four channels:
+   * `cast` (the spells leaving the hand), `impact` (what the shake answers),
+   * `combat` (minions and the player trading blows) and `ui` (cards, coins,
+   * the dash). The context itself starts on the first user gesture — before
+   * that every call is a silent no-op.
+   */
+  audio: {
+    enabled: true,
+    master: 0.5,
+    cast: 1.0,
+    impact: 1.0,
+    combat: 1.0,
+    ui: 1.0
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Player — the body the WASD keys drive and the minions want          */
+  /* ------------------------------------------------------------------ */
+  /**
+   * The character used to stand still while the world happened around it; now
+   * it walks, dashes and bleeds. HP and its regeneration live here, the shop's
+   * flat bonuses land in `progression`, and the minions' answer to all of it
+   * is in `minions.attack` / `minions.ranged` / `minions.boss`.
+   */
+  player: {
+    moveSpeed: 4.4, // metres/second at pace level 0
+    groundRadius: 24, // how far from the origin the walk may roam
+    maxHp: 100,
+    regen: 2.0, // hp/second, after the delay
+    regenDelay: 5.0, // seconds of grace since the last hit before it kicks in
+    hurtInvuln: 0.5, // seconds of immunity after taking a hit
+    walkLean: 0.14, // radians the torso pitches into the run
+    walkSwing: 0.55, // radians the thighs swing through the walk cycle
+
+    /* --- the dash (Space): a shove of velocity, not a teleport --- */
+    dashSpeed: 16, // metres/second while dashing
+    dashTime: 0.16, // seconds the shove lasts
+    dashCooldown: 1.5,
+    dashInvuln: 0.3, // the grace window it grants
+    dashLean: 0.42 // radians the body pitches into the dash
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Drops — what the swarm leaves on the floor                          */
+  /* ------------------------------------------------------------------ */
+  /**
+   * Minions die and shed gold (the banknote ability's ¥ finally became a
+   * currency) and, occasionally, a heal orb. Coins magnetise to the player
+   * inside `magnetRadius` and expire after `goldLife` seconds, sinking away.
+   * The shop that spends them is the HUD panel on **T**; its levels live in
+   * `progression`.
+   */
+  drops: {
+    enabled: true,
+    goldMin: 1, // coins shed per minion death
+    goldMax: 3,
+    goldLife: 25, // seconds before a coin sinks away
+    magnetRadius: 2.6, // metres the pickup reaches
+    pickupRadius: 0.9, // metres at which a coin is banked
+    healChance: 0.08, // fraction of deaths that shed a heal orb instead
+    healAmount: 20, // hp it restores
+    bobSpeed: 2.4, // the coin's idle spin and ride
+    bobHeight: 0.12,
+    colorGold: '#ffd75f',
+    colorHeal: '#6dff9e'
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Progression — the shop state, shared by the HUD panel and the editor */
+  /* ------------------------------------------------------------------ */
+  /**
+   * Four upgrade tracks, each a flat multiplier per level bought on **T**:
+   * damage, cooldown, vitality (+max hp, paid back as a heal) and pace (walk
+   * speed and the pickup magnet). The next level of every track costs
+   * `baseCost * costGrowth^level`, so the curve bites by the third purchase.
+   */
+  progression: {
+    gold: 0,
+    damageLevel: 0,
+    cooldownLevel: 0,
+    vitalityLevel: 0,
+    paceLevel: 0,
+    damagePerLevel: 0.15,
+    cooldownPerLevel: 0.08,
+    vitalityPerLevel: 25,
+    pacePerLevel: 0.1,
+    baseCost: 20,
+    costGrowth: 1.6
+  },
+
+  /* ------------------------------------------------------------------ */
   /* Minions — the waves of little enemies the abilities are for         */
   /* ------------------------------------------------------------------ */
   /**
@@ -302,7 +396,54 @@ export const settings = {
     colorBarFill: '#ff4d4d',
     colorBarBack: '#17090e',
     colorBarEdge: '#ffd9c9',
-    colorBarGhost: '#ffffff' // the trailing segment where health just was
+    colorBarGhost: '#ffffff', // the trailing segment where health just was
+
+    /* --- their answer: what the crowd does to the player --- */
+    /**
+     * Once the player can bleed, CROWD stops being harmless milling. Every
+     * minion in reach bites on its own `interval` clock, with a short visible
+     * lunge (`windup`) as the tell.
+     */
+    attack: {
+      damage: 8,
+      interval: 1.2, // seconds between one minion's bites
+      windup: 0.28, // seconds the lunge tells before the bite lands
+      reach: 0.9 // metres beyond `attackRange` the bite still connects
+    },
+
+    /**
+     * A fraction of every wave keeps its distance and throws bolts instead —
+     * the reason to stop standing still. The bolt is one pooled additive
+     * sphere with a particle trail; it only threatens the player.
+     */
+    ranged: {
+      enabled: true,
+      share: 0.22, // fraction of spawns that become throwers
+      stop: 8.5, // metres they keep from the player
+      interval: 2.6, // seconds between bolts
+      damage: 9,
+      speed: 8.5, // bolt speed, metres/second
+      boltLife: 3.0, // seconds before an uncaught bolt dies
+      color: '#ff9d4d'
+    },
+
+    /**
+     * Every `everyNWaves`-th wave arrives led by a boss: one body with the
+     * health of a squad, a slam it telegraphs by inflating before it lands,
+     * and a purse worth a whole wave. It uses the same pool and the same
+     * health bars as the swarm; only its dice are bigger.
+     */
+    boss: {
+      everyNWaves: 5,
+      healthMult: 14,
+      scaleMult: 2.1,
+      speedMult: 0.72,
+      slamInterval: 7, // seconds between slams
+      slamRadius: 5.0, // metres of the shockwave
+      slamDamage: 24,
+      slamWindup: 0.7, // seconds of inflate before it lands
+      color: '#7d2438'
+    }
   },
 
   /* ================================================================== */
@@ -1893,6 +2034,125 @@ export const settings = {
     lightColor: '#ffd9a0'
   },
 
+  /* ================================================================== */
+  /* IMPLOSION — ability eight: the hold-to-charge                       */
+  /* ================================================================== */
+  /**
+   * The first of the two **hold** mechanics, and the answer to a question the
+   * click casts never ask: *how much do you want to commit?* Arm with **Z**,
+   * press and **hold** the left button — the marker at the cursor point
+   * swells, the air gets pulled into it — and **release** to collapse the
+   * singularity. Everything scales with how long you held: radius, damage,
+   * the shake. Held to the cap it erases a whole crowd; tapped it is a poke.
+   *
+   * A release before ~0.12s is treated as a misfire and still fires, just at
+   * the floor of its power — the charge is a slider, not a gate.
+   */
+  implosion: {
+    holdToCast: true, // press-and-hold instead of click (see AimController)
+
+    cooldown: 6,
+    range: 18,
+    minRange: 3,
+
+    /* --- the charge --- */
+    chargeMax: 2.0, // seconds to full power
+    chargeMisfire: 0.12, // releases before this still fire, at minimum power
+
+    /* --- the collapse, at minimum → maximum charge --- */
+    radiusMin: 3.2,
+    radiusMax: 9.0,
+    damageMin: 140,
+    damageMax: 460,
+
+    /* --- the marker (metres) --- */
+    markerEdge: 0.14,
+    markerGlow: 2.2,
+    markerTicks: 36,
+    markerSpin: 0.4, // revolutions/second while charging
+    markerFill: 0.18,
+    /* --- the collapse burst --- */
+    burstLife: 0.85, // seconds the shockwave shell lives
+    burstIntensity: 1.6,
+    displace: 0.6, // turbulence on the shell
+
+    /* --- colour --- */
+    colorCore: '#fff0fb',
+    colorMid: '#ff6ad5',
+    colorEdge: '#7a2fb0',
+    colorFlash: '#ffd6f4',
+
+    /* --- dynamic light --- */
+    lightIntensity: 9,
+    lightRadius: 14,
+    lightColor: '#ff8ae0'
+  },
+
+  /* ================================================================== */
+  /* TETHER — ability nine: the channel                                  */
+  /* ================================================================== */
+  /**
+   * The second hold mechanic: a beam that *stays in your hand*. Arm with
+   * **N**, press and hold — an arc of lightning welds itself from the caster's
+   * hand to the point under the cursor and follows it for as long as the
+   * button is down, chewing anything on the line with rapid ticks. Release
+   * and it snaps with a discharge at the far end.
+   *
+   * It is the sandbox's first damage source with no travel time and no
+   * footprint to place — a steering wheel rather than a shot — which is why
+   * its numbers are per-tick and modest.
+   */
+  tether: {
+    holdToCast: true,
+
+    cooldown: 5,
+    range: 14,
+    minRange: 2,
+
+    /* --- the channel --- */
+    tickInterval: 0.12, // seconds between damage ticks
+    tickDamage: 26,
+    hitWidth: 0.75, // half-width of the band, metres
+
+    /* --- the beam (metres) --- */
+    coreRadius: 0.055, // the white-hot centre
+    sheathRadius: 0.2, // the ionised air around it
+    wobble: 0.5, // amplitude of the live jitter along the arc
+    wobbleSpeed: 9.0, // jitter waves per second
+    noise: 0.6, // break-up eating the sheath
+
+    /* --- the anchor point --- */
+    anchorRadius: 0.45, // the ball of lightning at the far end
+    anchorPulse: 3.0, // its brightness breathing
+
+    /* --- colour --- */
+    colorCore: '#fdfff2',
+    colorSheath: '#c8ff5f',
+    colorAnchor: '#eaffb0',
+    colorFlash: '#f4ffd0',
+
+    /* --- dynamic light --- */
+    lightIntensity: 8,
+    lightRadius: 12,
+    lightColor: '#d6ff8a'
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Reactions — what happens when elements meet on the same body        */
+  /* ------------------------------------------------------------------ */
+  /**
+   * A minion struck by an element remembers it for `window` seconds. A *differ-
+   * ent* element hitting inside that window detonates a reaction: a named bonus
+   * for the classic pairs, a generic resonance for everyone else. The bonus is
+   * a multiplier on the second hit only, and the status is consumed — no
+   * chain-stunning a crowd with one cast.
+   */
+  reactions: {
+    enabled: true,
+    window: 2.0, // seconds an element's memory lasts
+    bonus: 1.35 // the generic resonance multiplier
+  },
+
   /* ------------------------------------------------------------------ */
   /* Camera rig                                                          */
   /* ------------------------------------------------------------------ */
@@ -2010,7 +2270,7 @@ export const CastShape = Object.freeze({
  * array, and the index is the slot the keyboard binds to — adding a third
  * ability is a new file, an entry here and a settings block above.
  */
-export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'glacier', 'banknote'];
+export const ELEMENTS = ['ice', 'thunder', 'meteor', 'beam', 'snare', 'glacier', 'banknote', 'implosion', 'tether'];
 
 /**
  * Registry metadata: how an ability is presented, and how it is aimed.
@@ -2043,8 +2303,46 @@ export const ELEMENT_META = {
     key: 'B',
     hint: '钞票风暴',
     cast: CastShape.ZONE
+  },
+  implosion: {
+    label: '聚能奇点',
+    accent: '#ff6ad5',
+    key: 'Z',
+    hint: '聚能奇点',
+    cast: CastShape.ZONE // aimed as a circle; the *cast* itself is press-and-hold
+  },
+  tether: {
+    label: '雷光锁链',
+    accent: '#b4ff5f',
+    key: 'N',
+    hint: '雷光锁链'
   }
 };
+
+/**
+ * Element reactions — the named pairs and what meeting on one body is worth.
+ * Keys are the two element ids sorted and joined; anything not listed falls
+ * back to the generic resonance in `settings.reactions`.
+ */
+export const REACTIONS = {
+  'ice+thunder': { name: '超导', color: '#9fe8ff', bonus: 1.5 },
+  'ice+meteor': { name: '蒸爆', color: '#d8f2ff', bonus: 1.35 },
+  'meteor+thunder': { name: '感电', color: '#ffb36a', bonus: 1.4 },
+  'beam+ice': { name: '霜辉', color: '#c0ffff', bonus: 1.3 },
+  'glacier+thunder': { name: '电网', color: '#b9ffd9', bonus: 1.35 }
+};
+
+/**
+ * Look up the reaction when element `b` strikes a body carrying element `a`.
+ * Same element never reacts; distinct elements always do something.
+ *
+ * @returns {{name: string, color: string, bonus: number}|null}
+ */
+export function reactionOf(a, b) {
+  if (!a || !b || a === b) return null;
+  const key = [a, b].sort().join('+');
+  return REACTIONS[key] ?? { name: '共鸣', color: '#ffffff', bonus: settings.reactions.bonus };
+}
 
 /** How the given ability is aimed. Line unless its metadata says otherwise. */
 export function castShapeOf(element) {

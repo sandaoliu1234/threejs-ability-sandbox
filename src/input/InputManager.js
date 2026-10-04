@@ -28,6 +28,7 @@ export class InputManager extends EventEmitter {
   _bind() {
     this.dom.addEventListener('pointerdown', this._onPointerDown);
     window.addEventListener('pointermove', this._onPointerMove);
+    window.addEventListener('pointerup', this._onPointerUp);
     window.addEventListener('keydown', this._onKeyDown);
     window.addEventListener('keyup', this._onKeyUp);
     this.dom.addEventListener('contextmenu', this._onContextMenu);
@@ -60,6 +61,12 @@ export class InputManager extends EventEmitter {
   _onPointerMove = (event) => {
     this._updatePointer(event);
     this.emit('pointer:move', this.pointer);
+  };
+
+  /** The button came up anywhere — the hold abilities end on this. */
+  _onPointerUp = (event) => {
+    if (!this.enabled) return;
+    if (event.button === 0) this.emit('pointer:release');
   };
 
   _onKeyDown = (event) => {
@@ -99,6 +106,14 @@ export class InputManager extends EventEmitter {
       case 'Digit7':
         this.emit('action', 'ability', 6);
         break;
+      case 'KeyZ':
+      case 'Digit8':
+        this.emit('action', 'ability', 7);
+        break;
+      case 'KeyN':
+      case 'Digit9':
+        this.emit('action', 'ability', 8);
+        break;
       case 'Escape':
         this.emit('action', 'cancel');
         break;
@@ -117,6 +132,17 @@ export class InputManager extends EventEmitter {
       case 'KeyP':
         this.emit('action', 'togglePause');
         break;
+      case 'Space':
+        // The dodge. Held down it repeats through keydown repeats, which the
+        // dash cooldown itself absorbs — the gate lives in Player#dash.
+        this.emit('action', 'dash');
+        break;
+      case 'KeyT':
+        this.emit('action', 'toggleShop');
+        break;
+      case 'Enter':
+        this.emit('action', 'confirm');
+        break;
       default:
         break;
     }
@@ -126,9 +152,28 @@ export class InputManager extends EventEmitter {
     this.keys.delete(event.code);
   };
 
+  /**
+   * The WASD stick, in screen space: +x is right, +z is "down the screen".
+   * App rotates this into a world heading off the camera's own forward, so
+   * W always means "away from the camera" whichever way it orbits. Length is
+   * 0 or 1 — the walk has no analogue half-press.
+   */
+  axis() {
+    let x = 0;
+    let z = 0;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) z -= 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) z += 1;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) x -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) x += 1;
+    const len = Math.hypot(x, z);
+    if (len < 1e-6) return { x: 0, z: 0 };
+    return { x: x / len, z: z / len };
+  }
+
   dispose() {
     this.dom.removeEventListener('pointerdown', this._onPointerDown);
     window.removeEventListener('pointermove', this._onPointerMove);
+    window.removeEventListener('pointerup', this._onPointerUp);
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('keyup', this._onKeyUp);
     this.dom.removeEventListener('contextmenu', this._onContextMenu);

@@ -10,9 +10,10 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-import { settings } from '../config/settings.js';
+import { settings, reactionOf } from '../config/settings.js';
 import { LAYER } from '../core/Layers.js';
 import { Easing, saturate } from '../utils/math.js';
+import { sfx } from '../audio/Sound.js';
 
 /**
  * One little enemy.
@@ -141,6 +142,12 @@ export class Minion {
 
     /** Floor position lives on `root.position` (y carries the rise/sink). */
     this.hp = 0;
+    /** This life's health ceiling — the boss multiplies it at spawn. */
+    this.maxHp = 1;
+
+    /** The two castes the director hands out: stand-off throwers and bosses. */
+    this.isRanged = false;
+    this.isBoss = false;
 
     /* --- dice, rolled at spawn --- */
     this._speedFactor = 1;
@@ -159,6 +166,15 @@ export class Minion {
     /** Separation, accumulated by the manager's pair pass each frame. */
     this.sepX = 0;
     this.sepZ = 0;
+
+    /** The melee bite's own clock; a ranged body runs a bolt clock instead. */
+    this._attackTimer = 0;
+    /** Boss slam clock; <= windup means the telegraph is playing. */
+    this._slamTimer = 0;
+
+    /** The element this body is carrying, for the reaction system. */
+    this.statusElement = null;
+    this.statusTimer = 0;
 
     this._deadAge = 0;
     this._sinkAge = 0;
@@ -179,7 +195,17 @@ export class Minion {
 
   /** 0..1 through its health. */
   get healthRatio() {
-    return saturate(this.hp / Math.max(1, settings.minions.health));
+    return saturate(this.hp / Math.max(1, this.maxHp));
+  }
+
+  /** How wide this body is to the damage queries — the boss carries real girth. */
+  get bodyRadius() {
+    return settings.minions.bodyRadius * settings.minions.scale * (this.isBoss ? settings.minions.boss.scaleMult : 1);
+  }
+
+  /** Height its health bar rides at — above the head, whatever the caste. */
+  get barLift() {
+    return settings.minions.barLift * settings.minions.scale * (this.isBoss ? settings.minions.boss.scaleMult : 1);
   }
 
   /* ------------------------------------------------------------------ */
@@ -192,13 +218,17 @@ export class Minion {
    *
    * @param {number} x
    * @param {number} z
+   * @param {{ranged?: boolean, boss?: boolean}} [caste] assigned by the director
    */
-  spawn(x, z) {
+  spawn(x, z, { ranged = false, boss = false } = {}) {
     const c = settings.minions;
     this.token++;
     this.phase = MinionPhase.RISE;
     this.age = 0;
-    this.hp = c.health;
+    this.isRanged = ranged && c.ranged.enabled;
+    this.isBoss = boss;
+    this.maxHp = c.health * (boss ? c.boss.healthMult : 1);
+    this.hp = this.maxHp;
 
     this._speedFactor = 1 + (Math.random() * 2 - 1) * c.speedJitter;
     this._bobPhase = Math.random() * Math.PI * 2;
@@ -212,6 +242,13 @@ export class Minion {
     this._knockZ = 0;
     this.sepX = 0;
     this.sepZ = 0;
+
+    // The clocks stagger over their interval so a wave doesn't bite in unison.
+    this._attackTimer = c.attack.interval * (0.5 + Math.random() * 0.7);
+    this._slamTimer = c.boss.slamInterval;
+
+    this.statusElement = null;
+    this.statusTimer = 0;
 
     this._deadAge = 0;
     this._sinkAge = 0;
@@ -231,26 +268,51 @@ export class Minion {
 
   /**
    * Take a hit. `dirX/Z` is the unit direction of the blow (XZ) — the shove
-   * and the topple both follow it.
+   * and the topple both follow it. `element`, when given, feeds the reaction
+   * system: a different element than the one this body is carrying detonates
+   * a bonus and consumes the memory.
    *
    * @param {number} amount already scaled by the caller's falloff
    * @param {number} dirX
    * @param {number} dirZ
+   * @param {string} [element] the striking cast's element id
    */
-  applyDamage(amount, dirX = 0, dirZ = 0) {
+  applyDamage(amount, dirX = 0, dirZ = 0, element = null) {
     if (!this.alive) return;
     const c = settings.minions;
 
+    // The hit sound rides the flash envelope: a fresh flash means this body
+    // wasn't already mid-hit, which is what keeps a beam's DoT ticks from
+    // turning into one long rattle.
+    const fresh = this.flash <= 0.02;
+
+    /* --- the reaction: a different element inside the window detonates --- */
+    let incoming = amount;
+    if (element && settings.reactions.enabled && this.statusElement && this.statusTimer > 0) {
+      const reaction = reactionOf(this.statusElement, element);
+      if (reaction) {
+        incoming *= reaction.bonus;
+        this.manager.reactionAt(this.position, reaction);
+        this.statusElement = null; // consumed — one reaction per memory
+      }
+    } else if (element) {
+      this.statusElement = element;
+      this.statusTimer = settings.reactions.window;
+    }
+
     const crit = Math.random() < c.critChance;
-    this.hp = Math.max(0, this.hp - amount * (crit ? c.critMultiplier : 1) * c.damageTaken);
+    this.hp = Math.max(0, this.hp - incoming * (crit ? c.critMultiplier : 1) * c.damageTaken);
 
     this.flash = 1;
     this.showTimer = c.barShowTime;
-    const shove = c.knockback * (crit ? 1.5 : 1);
+    // A boss shrugs off shoves — the slam has to land where it landed.
+    const brace = this.isBoss ? 0.12 : 1;
+    const shove = c.knockback * (crit ? 1.5 : 1) * brace;
     this._knockX += dirX * shove;
     this._knockZ += dirZ * shove;
-    this.stagger = Math.max(this.stagger, c.staggerTime);
+    this.stagger = Math.max(this.stagger, this.isBoss ? c.staggerTime * 0.3 : c.staggerTime);
 
+    if (fresh) sfx.hit();
     if (this.hp <= 0) this._die(dirX, dirZ);
   }
 
@@ -295,6 +357,8 @@ export class Minion {
     // Decay the feedback envelopes, dead or alive.
     this.flash = Math.max(0, this.flash - c.flashDecay * dt);
     this.stagger = Math.max(0, this.stagger - dt);
+    this.statusTimer = Math.max(0, this.statusTimer - dt);
+    if (this.statusTimer <= 0) this.statusElement = null;
     const knockDecay = Math.exp(-7 * Math.max(dt, 1e-4));
     this._knockX *= knockDecay;
     this._knockZ *= knockDecay;
@@ -312,8 +376,10 @@ export class Minion {
       }
 
       case MinionPhase.SEEK: {
+        // A thrower stops at its own distance; the melee hold the circle.
+        const hold = this.isRanged ? c.ranged.stop : c.attackRange;
         const dist = this._steer(dt, target, 1);
-        if (dist <= c.attackRange) {
+        if (dist <= hold) {
           this.phase = MinionPhase.CROWD;
           this.age = 0;
         }
@@ -322,13 +388,24 @@ export class Minion {
 
       case MinionPhase.CROWD: {
         // Mill about: keep the separation so the circle breathes, but stop
-        // closing. Face the caster and idle.
+        // closing. Face the caster and idle — and, now that the player can
+        // bleed, work through the attack clocks.
         this._separate(dt);
         this._integrate(dt, 0);
         this.root.rotation.y = this._turnToward(
           Math.atan2(target.x - this.root.position.x, target.z - this.root.position.z),
           dt
         );
+
+        const dist = Math.hypot(target.x - this.root.position.x, target.z - this.root.position.z);
+
+        if (this.isBoss) {
+          this._updateSlam(dt, target, dist);
+        } else if (this.isRanged) {
+          this._updateThrowing(dt, target, dist);
+        } else {
+          this._updateBite(dt, target, dist);
+        }
         break;
       }
 
@@ -363,7 +440,11 @@ export class Minion {
       const nz = dz / dist;
       const c = settings.minions;
       const speed =
-        c.moveSpeed * this._speedFactor * speedScale * (this.stagger > 0 ? 0.3 : 1);
+        c.moveSpeed *
+        (this.isBoss ? c.boss.speedMult : 1) *
+        this._speedFactor *
+        speedScale *
+        (this.stagger > 0 ? 0.3 : 1);
       this._integrate(dt, speed);
       this.root.rotation.y = this._turnToward(Math.atan2(nx, nz), dt);
     } else {
@@ -384,6 +465,67 @@ export class Minion {
     this.root.position.z += (this.sepZ + this._knockZ) * dt;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* their answer: three attack clocks                                   */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The melee bite: wind up (a visible lunge on the body pivot), then land it
+   * if the player is still in reach. The clock runs only while touching, so
+   * leaving the circle genuinely resets the threat.
+   */
+  _updateBite(dt, target, dist) {
+    const c = settings.minions;
+    const reach = c.attackRange + c.attack.reach;
+    if (dist > reach) {
+      // Out of range: wind the clock back toward its interval so re-engaging
+      // is never an instant bite.
+      this._attackTimer = Math.max(this._attackTimer, c.attack.interval * 0.35);
+      return;
+    }
+
+    this._attackTimer -= dt;
+    if (this._attackTimer <= 0) {
+      this._attackTimer = c.attack.interval;
+      const dx = (target.x - this.root.position.x) / (dist || 1);
+      const dz = (target.z - this.root.position.z) / (dist || 1);
+      this.manager.attackPlayer(this, c.attack.damage, dx, dz);
+    }
+  }
+
+  /**
+   * The thrower: hold at its distance and lob bolts on a clock. It never
+   * bites — its whole threat is the ball it keeps tossing from safety.
+   */
+  _updateThrowing(dt, target, dist) {
+    const c = settings.minions;
+    if (!c.ranged.enabled) return;
+
+    this._boltTimer = (this._boltTimer ?? c.ranged.interval * Math.random()) - dt;
+    if (this._boltTimer <= 0) {
+      this._boltTimer = c.ranged.interval;
+      this.manager.fireBolt(this);
+    }
+  }
+
+  /**
+   * The boss slam: a slow clock, a visible inflate as the telegraph, then a
+   * shockwave that punishes standing inside the ring. The landing shakes the
+   * camera whether or not the player was caught in it — the ground is the
+   * event, not the damage.
+   */
+  _updateSlam(dt, target, dist) {
+    const c = settings.minions;
+    this._slamTimer -= dt;
+
+    if (this._slamTimer <= 0) {
+      this._slamTimer = c.boss.slamInterval;
+      const dx = (target.x - this.root.position.x) / (dist || 1);
+      const dz = (target.z - this.root.position.z) / (dist || 1);
+      this.manager.bossSlam(this, dx, dz);
+    }
+  }
+
   /** Clamp-angular-velocity heading, shortest way round. */
   _turnToward(yaw, dt) {
     const delta = MathUtils.euclideanModulo(yaw - this.root.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
@@ -395,23 +537,40 @@ export class Minion {
   /* presentation                                                        */
   /* ------------------------------------------------------------------ */
 
-  /** The walk bob, the waddle, the breathing, the hit-flash. */
+  /** The walk bob, the waddle, the breathing, the hit-flash — and the attack tells. */
   _updateBody(dt) {
     const c = settings.minions;
-    this.root.scale.setScalar(c.scale);
+    this.root.scale.setScalar(c.scale * (this.isBoss ? c.boss.scaleMult : 1));
 
     if (this.alive) {
       const moving = this.phase === MinionPhase.SEEK ? 1 : 0.25;
       const t = this.age * c.bobSpeed + this._bobPhase;
       this.bodyPivot.position.y = Math.abs(Math.sin(t)) * c.bobHeight * moving;
       this.bodyPivot.rotation.z = Math.sin(t * 0.5) * c.waddle * moving;
+
+      // The bite's tell: a lean out and back during the last `windup` of the
+      // clock. It's the one frame of fairness the player gets.
+      this.bodyPivot.position.z = 0;
+      if (!this.isBoss && !this.isRanged && this._attackTimer < c.attack.windup) {
+        const p = 1 - this._attackTimer / Math.max(0.01, c.attack.windup);
+        this.bodyPivot.position.z = Math.sin(p * Math.PI) * 0.24;
+      }
+
+      // The slam's tell: the whole body swells as the clock runs out.
       const breath = 1 + (this.phase === MinionPhase.CROWD ? 0.035 : 0.015) * Math.sin(t * 0.4);
-      this.bodyPivot.scale.set(1, breath, 1);
+      let inflate = 1;
+      if (this.isBoss && this._slamTimer < c.boss.slamWindup) {
+        inflate = 1 + 0.42 * (1 - this._slamTimer / Math.max(0.01, c.boss.slamWindup));
+      }
+      this.bodyPivot.scale.set(inflate, breath * inflate, inflate);
     }
 
     // The clones made at construction do not follow the base material, so the
-    // live look rides on every minion each frame.
+    // live look rides on every minion each frame. Castes tint the body so a
+    // thrower or a boss reads before it acts.
     this.bodyMaterial.color.copy(this.manager.bodyColor);
+    if (this.isRanged) this.bodyMaterial.color.lerp(this.manager.rangedColor, 0.55);
+    else if (this.isBoss) this.bodyMaterial.color.lerp(this.manager.bossColor, 0.6);
     this.bodyMaterial.emissive.copy(this.manager.flashColor);
     this.bodyMaterial.emissiveIntensity = this.flash * 2.6;
     this.bodyMaterial.roughness = c.roughness;

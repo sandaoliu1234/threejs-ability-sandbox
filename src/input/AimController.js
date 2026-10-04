@@ -22,11 +22,19 @@ const GROUND_PLANE = new Plane(new Vector3(0, 1, 0), 0);
  * `spawn` takes. A far cast reads its target point off the far end of that
  * line, so the ability contract never had to change.
  *
+ * The **hold** abilities (see `settings[...].holdToCast`) split that one event
+ * in two: `press` on the button-down emits `holdstart` and keeps the aim
+ * armed — the ability steers with every resolve — and `release` on the
+ * button-up emits `holdend` with the seconds the button was down, which is
+ * the whole charge mechanic. Escaping mid-hold emits `holdcancel` instead,
+ * and nothing is spent.
+ *
  * The pointer is re-projected every frame rather than only on move, so orbiting
  * the camera with the cast armed swings the indicator under a stationary
  * cursor.
  *
- * Emits: `cast` (origin, direction, distance), `arm`, `cancel`, `reject`.
+ * Emits: `cast` and `holdstart`/`holdend`/`holdcancel`
+ *         (origin, direction, distance[, charge]), `arm`, `cancel`, `reject`.
  */
 export class AimController extends EventEmitter {
   constructor(camera) {
@@ -52,6 +60,10 @@ export class AimController extends EventEmitter {
     this.armed = false;
     /** 0..1 sweep-out of the indicator. Driven by real time, never scaled. */
     this.reveal = 0;
+
+    /** True between a hold's `press` and `release`. */
+    this.holding = false;
+    this._holdStartedAt = 0;
 
     /** Where the cast comes from — the caster's feet. */
     this.origin = new Vector3();
@@ -80,6 +92,11 @@ export class AimController extends EventEmitter {
   /** Whether the ability in the slot is aimed with the arrow or the circle. */
   get shape() {
     return castShapeOf(this.element);
+  }
+
+  /** Whether the ability in the slot is cast by holding the button down. */
+  get holdToCast() {
+    return this.config.holdToCast ?? false;
   }
 
   /** Footprint of a far cast, metres. Zero for a line cast. */
@@ -116,6 +133,13 @@ export class AimController extends EventEmitter {
   }
 
   cancel() {
+    if (this.holding) {
+      // An aborted hold spends nothing — that is the deal the mechanic makes.
+      this.holding = false;
+      this.armed = false;
+      this.emit('holdcancel');
+      return;
+    }
     if (!this.armed) return;
     this.armed = false;
     this.emit('cancel');
@@ -144,6 +168,39 @@ export class AimController extends EventEmitter {
     }
     this.armed = false;
     this.emit('cast', this.origin, this.direction, this.distance);
+    return true;
+  }
+
+  /**
+   * Begin a hold: exactly `confirm`'s validation, but the aim stays armed and
+   * the ability steers until `release` or `cancel`.
+   *
+   * @returns {boolean} whether a holdstart was emitted
+   */
+  press() {
+    if (!this.armed || this.holding) return false;
+    if (!this.valid) {
+      this.emit('reject');
+      return false;
+    }
+    this.holding = true;
+    this._holdStartedAt = performance.now() / 1000;
+    this.emit('holdstart', this.origin, this.direction, this.distance);
+    return true;
+  }
+
+  /**
+   * End the hold. The charge is measured on *real* time, so a paused sandbox
+   * does not silently mature the charge while frozen.
+   *
+   * @returns {boolean} whether a holdend was emitted
+   */
+  release() {
+    if (!this.holding) return false;
+    this.holding = false;
+    this.armed = false;
+    const charge = performance.now() / 1000 - this._holdStartedAt;
+    this.emit('holdend', this.origin, this.direction, this.distance, charge);
     return true;
   }
 

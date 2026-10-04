@@ -219,7 +219,8 @@ export class HealthBars {
       if (n >= MAX_BARS) break;
       const o = n * 3;
       this.centerData[o] = minion.position.x;
-      this.centerData[o + 1] = minion.position.y + lift;
+      // A boss's bar rides its own head height; everyone else shares the line.
+      this.centerData[o + 1] = minion.position.y + (minion.barLift ?? lift);
       this.centerData[o + 2] = minion.position.z;
       this.ratioData[n] = minion.healthRatio;
       this.ghostData[n] = minion.ghost;

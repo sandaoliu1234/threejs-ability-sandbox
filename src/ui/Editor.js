@@ -41,7 +41,10 @@ export class Editor {
     this._buildSnare();
     this._buildGlacier();
     this._buildBanknote();
+    this._buildImplosion();
+    this._buildTether();
     this._buildMinions();
+    this._buildGame();
     this._buildEnvironment();
     this._buildPost();
     this._buildCamera();
@@ -1791,6 +1794,136 @@ export class Editor {
     R(lunge, c, 'castLean', 0, 1.2, 0.01, '前冲俯身');
     R(lunge, c, 'castRecoil', 0, 0.8, 0.005, '前冲后坐');
     R(lunge, c, 'castSettle', 0.2, 8, 0.05, '前冲回稳');
+  }
+
+  /**
+   * The gameplay layer: sound, the player body, the loot and the shop. Four
+   * small folders rather than one deep one — they map to the four settings
+   * blocks and stay flat.
+   */
+  _buildGame() {
+    const R = Editor.range;
+
+    const audio = this.gui.addFolder('🔊  音效');
+    audio.add(settings.audio, 'enabled').name('开启');
+    R(audio, settings.audio, 'master', 0, 1, 0.01, '总音量');
+    R(audio, settings.audio, 'cast', 0, 2, 0.01, '施法');
+    R(audio, settings.audio, 'impact', 0, 2, 0.01, '冲击');
+    R(audio, settings.audio, 'combat', 0, 2, 0.01, '战斗');
+    R(audio, settings.audio, 'ui', 0, 2, 0.01, '界面');
+
+    const player = this.gui.addFolder('🏃  玩家');
+    const p = settings.player;
+    R(player, p, 'maxHp', 20, 400, 5, '生命上限');
+    R(player, p, 'regen', 0, 12, 0.1, '回复速率');
+    R(player, p, 'regenDelay', 0, 12, 0.1, '回复延迟');
+    R(player, p, 'hurtInvuln', 0, 2, 0.01, '受击无敌');
+    R(player, p, 'moveSpeed', 1, 12, 0.1, '移动速度');
+    R(player, p, 'groundRadius', 8, 40, 1, '活动半径');
+    R(player, p, 'walkLean', 0, 0.5, 0.01, '跑动前倾');
+    R(player, p, 'walkSwing', 0, 1.2, 0.01, '步幅摆动');
+    const dash = player.addFolder('翻滚 (空格)');
+    R(dash, p, 'dashSpeed', 4, 30, 0.5, '冲刺速度');
+    R(dash, p, 'dashTime', 0.05, 0.5, 0.01, '冲刺时长');
+    R(dash, p, 'dashCooldown', 0.2, 5, 0.05, '冷却');
+    R(dash, p, 'dashInvuln', 0, 1.5, 0.01, '闪避无敌');
+    R(dash, p, 'dashLean', 0, 1.2, 0.01, '冲刺前倾');
+
+    const drops = this.gui.addFolder('💰  掉落');
+    drops.add(settings.drops, 'enabled').name('开启');
+    R(drops, settings.drops, 'goldMin', 0, 6, 1, '金币下限');
+    R(drops, settings.drops, 'goldMax', 1, 10, 1, '金币上限');
+    R(drops, settings.drops, 'goldLife', 5, 60, 1, '存留时间');
+    R(drops, settings.drops, 'magnetRadius', 0.5, 8, 0.1, '磁吸半径');
+    R(drops, settings.drops, 'pickupRadius', 0.3, 2.5, 0.05, '拾取半径');
+    R(drops, settings.drops, 'healChance', 0, 0.5, 0.01, '治疗球概率');
+    R(drops, settings.drops, 'healAmount', 5, 60, 1, '治疗量');
+    drops.addColor(settings.drops, 'colorGold').name('金币颜色');
+    drops.addColor(settings.drops, 'colorHeal').name('治疗颜色');
+
+    const shop = this.gui.addFolder('🛒  成长');
+    const s = settings.progression;
+    R(shop, s, 'baseCost', 5, 100, 1, '基础价格');
+    R(shop, s, 'costGrowth', 1, 3, 0.05, '价格曲线');
+    R(shop, s, 'damagePerLevel', 0, 0.5, 0.01, '每级伤害');
+    R(shop, s, 'cooldownPerLevel', 0, 0.3, 0.01, '每级冷却');
+    R(shop, s, 'vitalityPerLevel', 5, 80, 1, '每级生命');
+    R(shop, s, 'pacePerLevel', 0, 0.4, 0.01, '每级移速').listen();
+
+    const reactions = shop.addFolder('元素反应');
+    reactions.add(settings.reactions, 'enabled').name('开启');
+    R(reactions, settings.reactions, 'window', 0.5, 5, 0.1, '记忆窗口 (秒)');
+    R(reactions, settings.reactions, 'bonus', 1, 2.5, 0.05, '共鸣倍率');
+  }
+
+  /**
+   * The two hold abilities get the same folder treatment as the click casts —
+   * the mechanic is different but the tuning knobs are the same shape.
+   */
+  _buildImplosion() {
+    const folder = this.gui.addFolder('✦  聚能奇点');
+    const c = settings.implosion;
+    const R = Editor.range;
+
+    R(folder, c, 'cooldown', 0.5, 15, 0.1, '冷却');
+    R(folder, c, 'range', 5, 30, 0.5, '射程');
+    R(folder, c, 'minRange', 0.5, 10, 0.5, '最小距离');
+
+    const charge = folder.addFolder('蓄力');
+    R(charge, c, 'chargeMax', 0.4, 4, 0.05, '蓄满时长');
+    R(charge, c, 'chargeMisfire', 0.02, 0.5, 0.01, '误触阈值');
+
+    const collapse = folder.addFolder('坍缩');
+    R(collapse, c, 'radiusMin', 1, 8, 0.1, '最小半径');
+    R(collapse, c, 'radiusMax', 3, 16, 0.1, '最大半径');
+    R(collapse, c, 'damageMin', 20, 400, 5, '最小伤害');
+    R(collapse, c, 'damageMax', 50, 1200, 10, '最大伤害');
+    R(collapse, c, 'burstLife', 0.3, 2, 0.05, '冲击时长');
+    R(collapse, c, 'burstIntensity', 0.2, 4, 0.05, '冲击强度');
+
+    const marker = folder.addFolder('标记');
+    R(marker, c, 'markerEdge', 0.04, 0.5, 0.01, '边界厚度');
+    R(marker, c, 'markerGlow', 0, 4, 0.05, '边界辉光');
+    R(marker, c, 'markerTicks', 0, 60, 1, '刻度数');
+    R(marker, c, 'markerSpin', 0, 2, 0.01, '旋转速度');
+    R(marker, c, 'markerFill', 0, 1, 0.01, '内部填充');
+    marker.addColor(c, 'colorCore').name('核心颜色');
+    marker.addColor(c, 'colorMid').name('主颜色');
+
+    const light = folder.addFolder('光照');
+    R(light, c, 'lightIntensity', 0, 30, 0.5, '强度');
+    R(light, c, 'lightRadius', 1, 30, 0.5, '半径');
+    light.addColor(c, 'lightColor').name('颜色');
+  }
+
+  _buildTether() {
+    const folder = this.gui.addFolder('⛓  雷光锁链');
+    const c = settings.tether;
+    const R = Editor.range;
+
+    R(folder, c, 'cooldown', 0.5, 15, 0.1, '冷却');
+    R(folder, c, 'range', 4, 30, 0.5, '射程');
+    R(folder, c, 'minRange', 0.5, 10, 0.5, '最小距离');
+
+    const channel = folder.addFolder('引导');
+    R(channel, c, 'tickInterval', 0.04, 0.5, 0.01, '伤害间隔');
+    R(channel, c, 'tickDamage', 4, 120, 1, '每跳伤害');
+    R(channel, c, 'hitWidth', 0.1, 3, 0.05, '命中宽度');
+
+    const beam = folder.addFolder('光弧');
+    R(beam, c, 'coreRadius', 0.01, 0.3, 0.005, '芯半径');
+    R(beam, c, 'sheathRadius', 0.05, 0.8, 0.01, '鞘半径');
+    R(beam, c, 'wobble', 0, 2, 0.05, '抖动幅度');
+    R(beam, c, 'wobbleSpeed', 1, 24, 0.5, '抖动频率');
+    R(beam, c, 'noise', 0, 1, 0.01, '噪声破碎');
+    R(beam, c, 'anchorRadius', 0.1, 1.5, 0.05, '锚点半径');
+    beam.addColor(c, 'colorCore').name('芯颜色');
+    beam.addColor(c, 'colorSheath').name('鞘颜色');
+
+    const light = folder.addFolder('光照');
+    R(light, c, 'lightIntensity', 0, 30, 0.5, '强度');
+    R(light, c, 'lightRadius', 1, 30, 0.5, '半径');
+    light.addColor(c, 'lightColor').name('颜色');
   }
 
   dispose() {

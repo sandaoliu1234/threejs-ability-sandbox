@@ -5,6 +5,8 @@ import { BeamAbility } from './BeamAbility.js';
 import { SnareAbility } from './SnareAbility.js';
 import { GlacierAbility } from './GlacierAbility.js';
 import { BanknoteAbility } from './BanknoteAbility.js';
+import { ImplosionAbility } from './ImplosionAbility.js';
+import { TetherAbility } from './TetherAbility.js';
 import { ELEMENTS } from '../config/settings.js';
 import { ObjectPool } from '../utils/ObjectPool.js';
 
@@ -16,7 +18,9 @@ const ABILITY_TYPES = {
   beam: BeamAbility,
   snare: SnareAbility,
   glacier: GlacierAbility,
-  banknote: BanknoteAbility
+  banknote: BanknoteAbility,
+  implosion: ImplosionAbility,
+  tether: TetherAbility
 };
 
 /** The banknote scans, loaded by `App#load` before the pools are warmed. */
@@ -46,6 +50,9 @@ export class AbilityManager {
     this.ctx = context;
     this.active = [];
     this.selected = ELEMENTS[0];
+
+    /** Element → the hold ability currently riding the mouse button. */
+    this.holds = new Map();
 
     this.pools = new Map();
     for (const [element, Type] of Object.entries(ABILITY_TYPES)) {
@@ -139,6 +146,53 @@ export class AbilityManager {
     return ability;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* the hold cast — press-and-hold elements                             */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The button went down on a hold ability: take a body from the pool, put it
+   * in the active list (so `update` drives it like any other cast) and
+   * remember it as the element's live hold.
+   */
+  beginHold(element, origin, direction, distance) {
+    const pool = this.pools.get(element);
+    if (!pool) return null;
+
+    const ability = pool.acquire();
+    this.active.push(ability);
+    this.holds.set(element, ability);
+    ability.beginHold(origin, direction, distance);
+    return ability;
+  }
+
+  /** The cursor moved while holding — re-aim the element's live hold. */
+  setHoldTarget(element, origin, direction, distance) {
+    this.holds.get(element)?.setHoldTarget(origin, direction, distance);
+  }
+
+  /** The button came up: the ability plays its own payoff and recycles. */
+  releaseHold(element) {
+    this.holds.get(element)?.releaseHold();
+    this.holds.delete(element);
+  }
+
+  /**
+   * The hold was aborted (Esc, right-click, a mid-hold pause of the whole
+   * system). Unlike a release there is no payoff and no cooldown — the body
+   * goes straight back to the pool.
+   */
+  cancelHold(element) {
+    const ability = this.holds.get(element);
+    if (!ability) return;
+    this.holds.delete(element);
+
+    const index = this.active.indexOf(ability);
+    if (index >= 0) this.active.splice(index, 1);
+    ability.destroy();
+    this.pools.get(element).release(ability);
+  }
+
   update(dt) {
     for (let i = this.active.length - 1; i >= 0; i--) {
       const ability = this.active[i];
@@ -153,6 +207,7 @@ export class AbilityManager {
 
   /** Cancel everything currently in flight. */
   clear() {
+    this.holds.clear();
     for (const ability of this.active) {
       ability.destroy();
       this.pools.get(ability.element).release(ability);

@@ -282,7 +282,7 @@ export class Ability {
 
     this.pointAt(previousFront / this.length, _sweepA);
     this.pointAt(this.u, _sweepB);
-    minions.damageSegment(_sweepA, _sweepB, width, damage, { hitSet: this.minionsHit });
+    minions.damageSegment(_sweepA, _sweepB, width, damage, { hitSet: this.minionsHit, element: this.element });
   }
 
   _updateLight(dt, scale) {

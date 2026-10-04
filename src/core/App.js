@@ -28,12 +28,21 @@ import { AbilityManager } from '../abilities/AbilityManager.js';
 import { MinionManager } from '../minions/MinionManager.js';
 import { PostProcessing } from '../postprocessing/PostProcessing.js';
 
+import { Player } from '../game/Player.js';
+import { Drops } from '../game/Drops.js';
+import { sfx } from '../audio/Sound.js';
+
 import { HUD, LoadingScreen } from '../ui/HUD.js';
 import { Editor } from '../ui/Editor.js';
 
 import { settings, ELEMENTS } from '../config/settings.js';
 
 const HDR_URL = './hdri/spruit_sunrise.hdr';
+
+/** Scratch for the camera-relative walk basis; reused, never reallocated. */
+const _forward = new Vector3();
+const _right = new Vector3();
+const _up = new Vector3(0, 1, 0);
 
 /** Hand the page back for one frame, so the loading veil can repaint. */
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
@@ -89,12 +98,23 @@ export class App {
     this.shake = new CameraShake(this.rig);
     this.flash = new ScreenFlash();
 
+    /* ---- the player, the purse and the loot ---- */
+    // The player exists before the minions so the swarm can be pointed at it;
+    // the minions ask it for nothing — they call `damage()` through their own
+    // reference, and the invulnerability gate lives over there.
+    this.player = new Player();
+
     /* ---- minions: the targets every ability is for ---- */
     // Built before the ability manager so its context can hand the system out;
     // aimed at the character once that exists.
     this.kills = 0;
     this.minions = new MinionManager({ scene: this.scene, particles: this.particles });
     this.minions.onKill = () => this.kills++;
+    this.minions.setPlayer(this.player);
+    this.minions.onSlam = () => this.shake.add(0.45, 2.2, 18);
+
+    this.drops = new Drops(this.scene, this.particles);
+    this.minions.setDrops(this.drops);
 
     this.abilities = new AbilityManager({
       scene: this.scene,
@@ -135,6 +155,11 @@ export class App {
     this.selectAbility(ELEMENTS[0], { silent: true });
 
     this._focusPoint = new Vector3();
+    this._lastMoveX = 0;
+    this._lastMoveZ = 1;
+    this._lastShopGold = -1;
+    /** Element id of the hold cast currently riding the mouse button. */
+    this.hold = null;
   }
 
   /** The ability currently in the slot. */
@@ -151,19 +176,72 @@ export class App {
       this.dust.setPixelRatio(pixelRatio);
     });
 
+    // The AudioContext wakes on the first gesture; before that every call
+    // into `sfx` is a silent no-op, so this is the only wiring it needs.
+    const unlock = () => sfx.unlock();
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+
     this.input.on('pointer:move', (pointer) => this.aim.point(pointer));
     this.input.on('pointer:confirm', (pointer) => {
       this.aim.point(pointer);
-      this.aim.confirm();
+      // Hold abilities split the click in two: the down-stroke begins the
+      // hold, and `pointer:release` below ends it.
+      if (this.aim.holdToCast) {
+        if ((this.cooldowns.get(this.element) ?? 0) > 0) {
+          this.hud.showToast('尚未就绪');
+          return;
+        }
+        this.aim.press();
+      } else {
+        this.aim.confirm();
+      }
     });
+    this.input.on('pointer:release', () => this.aim.release());
     this.input.on('action', (action, slot) => this._handleAction(action, slot));
 
     this.aim.on('cast', (origin, direction, distance) => this._cast(origin, direction, distance));
     this.aim.on('reject', () => this.hud.showToast('距离太近 —— 请瞄准更远处'));
 
+    /* ---- the hold cast: begin on the press, pay on the release ---- */
+    this.aim.on('holdstart', (origin, direction, distance) => {
+      const element = this.element;
+      this.abilities.beginHold(element, origin, direction, distance);
+      this.hold = element;
+      this.character.setFacing(this.aim.facing);
+      this.character.playCast(settings[element].castAnim);
+      this.character.castLunge();
+      sfx.holdStart(element);
+    });
+    this.aim.on('holdend', (origin, direction, distance, charge) => {
+      const element = this.hold;
+      if (!element) return;
+      this.hold = null;
+      this.abilities.releaseHold(element);
+      this._applyCooldown(element);
+      this.character.castLunge();
+    });
+    this.aim.on('holdcancel', () => {
+      const element = this.hold;
+      if (!element) return;
+      this.hold = null;
+      this.abilities.cancelHold(element);
+      this.hud.showToast('已打断 —— 未消耗');
+    });
+
     this.hud.onAbility = (element) => this.armAbility(element);
     this.hud.onToggleMinions = () => this._handleAction('toggleMinions');
+    this.hud.onRestart = () => this._restartRun();
+    this.hud.onBuy = (track) => this.player.buy(track);
+    this.hud.bindPlayer(this.player);
     this.hud.setMinionsEnabled(settings.minions.enabled);
+
+    /* ---- the player's presentation hooks ---- */
+    this.player.onHurt = () => {
+      this.hud.hurtFlash(0.85);
+      this.shake.add(0.2);
+    };
+    this.player.onDeath = () => this._onPlayerDeath();
   }
 
   _handleAction(action, slot) {
@@ -200,6 +278,22 @@ export class App {
         this.hud.setPaused(this.paused);
         this.hud.showToast(this.paused ? '已暂停 —— 编辑器修改仍然生效' : '已继续');
         break;
+      case 'dash':
+        this._dash();
+        break;
+      case 'toggleShop': {
+        if (!this.player.alive) break;
+        const open = this.hud.toggleShop();
+        if (open) {
+          this.hud.refreshShop();
+          sfx.ui(0.9);
+        }
+        break;
+      }
+      case 'confirm':
+        // Enter while the death card is up starts the next run.
+        if (!this.player.alive) this._restartRun();
+        break;
       default:
         break;
     }
@@ -228,10 +322,16 @@ export class App {
     this.aim.arm();
   }
 
+  /** Put an ability's cooldown on the clock, the shop's haste included. */
+  _applyCooldown(element) {
+    this.cooldowns.set(element, Math.max(0, settings[element].cooldown * this.player.cooldownMult));
+  }
+
   _cast(origin, direction, distance) {
     const element = this.element;
     this.abilities.cast(origin, direction, distance, element);
-    this.cooldowns.set(element, Math.max(0, settings[element].cooldown));
+    this._applyCooldown(element);
+    sfx.cast(element);
 
     // Snap onto the shot and throw the body into it. Which clip that is belongs
     // to the ability, so each spell can be cast with its own gesture.
@@ -250,6 +350,142 @@ export class App {
     this.lights.reset();
     this.shake.reset();
     this.flash.reset();
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* the player on foot                                                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The WASD stick resolved against the camera's own heading: W is always
+   * "away from the camera", whichever way it has orbited. Returns a unit XZ
+   * direction, or null when no key is held.
+   */
+  _walkDirection() {
+    const axis = this.input.axis();
+    if (axis.x === 0 && axis.z === 0) return null;
+
+    this.camera.getWorldDirection(_forward);
+    _forward.y = 0;
+    if (_forward.lengthSq() < 1e-8) _forward.set(0, 0, -1);
+    _forward.normalize();
+    _right.copy(_forward).cross(_up);
+
+    const x = _right.x * axis.x - _forward.x * axis.z;
+    const z = _right.z * axis.x - _forward.z * axis.z;
+    const len = Math.hypot(x, z) || 1;
+    return { x: x / len, z: z / len };
+  }
+
+  /** The dodge: toward the stick, or forward if standing still. */
+  _dash() {
+    if (!this.player.alive) return;
+    const dir = this._walkDirection() ?? {
+      x: Math.sin(this.character.facing),
+      z: Math.cos(this.character.facing)
+    };
+    if (this.player.dash(dir.x, dir.z)) {
+      this._lastMoveX = dir.x;
+      this._lastMoveZ = dir.z;
+    }
+  }
+
+  /** The run ends: the body falls, the veil comes down, the card waits. */
+  _onPlayerDeath() {
+    this.aim.cancel();
+    this.character.setDead(true);
+    this.hud.showDeath(this.kills, this.minions.waveCount, settings.progression.gold);
+    this.hud.hurtFlash(1);
+    sfx.gameOver();
+  }
+
+  /** A fresh run: everything the run earned and spent goes back to zero. */
+  _restartRun() {
+    const p = settings.progression;
+    p.gold = 0;
+    p.damageLevel = 0;
+    p.cooldownLevel = 0;
+    p.vitalityLevel = 0;
+    p.paceLevel = 0;
+
+    this.player.reset();
+    this.character.setDead(false);
+    this.character.resetPlacement();
+    this.character.root.position.set(0, 0, 0);
+    this.minions.clearAll();
+    this.drops.clear();
+    for (const element of this.cooldowns.keys()) this.cooldowns.set(element, 0);
+    this.kills = 0;
+    this._lastShopGold = -1;
+
+    this.hud.hideDeath();
+    this.hud.showToast('新一轮开始 —— 小兵正在归来的路上');
+  }
+
+  /**
+   * One integration step of the body across the floor. Movement rides the
+   * simulation delta (so pausing freezes the walk mid-stride), but the turn
+   * toward the aim rides `raw`, exactly as it did before the walk existed —
+   * the arrow keeps sweeping while paused, and the body keeps facing it.
+   *
+   * @param {number} dt  simulation delta
+   * @param {number} raw real-time delta
+   */
+  _updatePlayer(dt, raw) {
+    const player = this.player;
+    player.update(dt);
+    const position = this.character.root.position;
+    const dashing = player.dashTimeLeft > 0;
+
+    this.character.setDashing(dashing, dt);
+
+    if (!player.alive) {
+      this.character.setLocomotion(0, dt);
+      return;
+    }
+
+    let vx = 0;
+    let vz = 0;
+    let speed01 = 0;
+
+    if (dashing) {
+      vx = player.dashDirX * settings.player.dashSpeed;
+      vz = player.dashDirZ * settings.player.dashSpeed;
+      speed01 = 1;
+      this._lastMoveX = player.dashDirX;
+      this._lastMoveZ = player.dashDirZ;
+    } else {
+      const dir = this._walkDirection();
+      if (dir) {
+        vx = dir.x * player.moveSpeed;
+        vz = dir.z * player.moveSpeed;
+        speed01 = 1;
+        this._lastMoveX = dir.x;
+        this._lastMoveZ = dir.z;
+      }
+    }
+
+    position.x += vx * dt;
+    position.z += vz * dt;
+
+    // Keep the body inside the arena: a soft clamp on the world radius.
+    const radius = settings.player.groundRadius;
+    const dist = Math.hypot(position.x, position.z);
+    if (dist > radius) {
+      position.x *= radius / dist;
+      position.z *= radius / dist;
+    }
+
+    this.character.setLocomotion(speed01, dt);
+
+    // Facing: the armed arrow owns the body; otherwise the walk steers it.
+    if (this.aim.isArmed) {
+      if (settings.character.turnToAim) {
+        this.character.turnToward(this.aim.facing, settings.character.turnRate, raw);
+      }
+    } else if (speed01 > 0 && this._lastMoveX !== undefined) {
+      this.character.turnToward(Math.atan2(this._lastMoveX, this._lastMoveZ), settings.character.turnRate, raw);
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -432,13 +668,18 @@ export class App {
     this.aim.setOrigin(this.character.position);
     this.aim.update(raw);
 
-    if (settings.character.turnToAim && this.aim.isArmed) {
-      this.character.turnToward(this.aim.facing, settings.character.turnRate, raw);
+    // A live hold steers with the cursor, resolved by the aim controller
+    // every frame whether or not the pointer moved.
+    if (this.hold) {
+      this.abilities.setHoldTarget(this.hold, this.aim.origin, this.aim.direction, this.aim.distance);
     }
+
+    this._updatePlayer(dt, raw);
     this.character.update(dt);
 
     /* ---- the swarm ---- */
     this.minions.update(dt);
+    this.drops.update(dt, this.player, this.character.position);
 
     for (const [element, remaining] of this.cooldowns) {
       if (remaining > 0) this.cooldowns.set(element, Math.max(0, remaining - raw));
@@ -476,13 +717,31 @@ export class App {
       this.hud.setCooldown(element, this.cooldowns.get(element) ?? 0, settings[element].cooldown);
     }
     this.hud.setArmed(this.aim.isArmed);
+    this.hud.setPlayerHp(
+      this.player.hp / this.player.maxHp,
+      this.player.hp,
+      this.player.maxHp
+    );
+    this.hud.setDash(
+      this.player.dashCooldownLeft / Math.max(0.001, settings.player.dashCooldown)
+    );
+
+    // The shop's numbers only move when gold does.
+    const gold = settings.progression.gold;
+    if (this.hud.shopOpen && gold !== this._lastShopGold) {
+      this._lastShopGold = gold;
+      this.hud.refreshShop();
+    }
+
     this.hud.update(raw, () => ({
       particles: this.particles.countLive(this.elapsed),
       calls: gl.info.render.calls,
       spikes: this.abilities.active.reduce((total, ability) => total + ability.instanceCount, 0),
       abilities: this.abilities.active.length,
       minions: this.minions.active.length,
-      kills: this.kills
+      kills: this.kills,
+      wave: this.minions.waveCount,
+      gold
     }));
   }
 
@@ -494,6 +753,7 @@ export class App {
     this.aim.dispose();
     this.abilities.dispose();
     this.minions.dispose();
+    this.drops.dispose();
     this.particles.dispose();
     this.decals.dispose();
     this.fissures.dispose();

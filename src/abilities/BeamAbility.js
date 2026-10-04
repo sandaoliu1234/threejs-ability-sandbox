@@ -965,7 +965,8 @@ export class BeamAbility extends Ability {
         this.origin,
         _burnEnd,
         c.burnWidth,
-        c.burnDamage * dt * (t <= 1 ? 1 : widthFade)
+        c.burnDamage * dt * (t <= 1 ? 1 : widthFade),
+        { element: this.element }
       );
     }
 

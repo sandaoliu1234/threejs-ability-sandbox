@@ -1,16 +1,29 @@
-import { Color, Group, MeshStandardMaterial, Vector3 } from 'three';
+import {
+  AdditiveBlending,
+  Color,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  SphereGeometry,
+  Vector3
+} from 'three';
 
 import { settings } from '../config/settings.js';
 import { frame } from '../core/FrameUniforms.js';
+import { LAYER } from '../core/Layers.js';
 import { ParticleShape } from '../particles/ParticleSystem.js';
 import { ObjectPool } from '../utils/ObjectPool.js';
 import { getColor } from '../utils/color.js';
 import { saturate } from '../utils/math.js';
+import { sfx } from '../audio/Sound.js';
 
 import { HealthBars } from './HealthBars.js';
 import { Minion } from './Minion.js';
 
 const _up = new Vector3(0, 1, 0);
+const _white = new Color(0xffffff);
+const _c = new Color();
 
 /**
  * Owns every minion: the wave director that sends them in, the pool they
@@ -50,6 +63,16 @@ export class MinionManager {
 
     /** Set by App for the HUD readout. */
     this.onKill = null;
+    /** Set by App: a boss slam just landed (camera work lives over there). */
+    this.onSlam = null;
+
+    /** The player state (`game/Player.js`) — null until App wires it. */
+    this.player = null;
+    /** The loot system (`game/Drops.js`) — deaths shed coins through it. */
+    this.drops = null;
+
+    /** Completed waves since the last restart; bosses ride every Nth. */
+    this.waveCount = 0;
 
     this.root = new Group();
     this.root.name = 'Minions';
@@ -77,6 +100,23 @@ export class MinionManager {
     this.bodyColor = new Color();
     this.flashColor = new Color();
     this._eyeColor = new Color();
+    /** Caste tints, refreshed per frame from settings. */
+    this.rangedColor = new Color();
+    this.bossColor = new Color();
+
+    /* --- the bolts the throwers lob --- */
+    this._boltGeometry = new SphereGeometry(0.09, 8, 6);
+    this._boltMaterial = new MeshBasicMaterial({
+      color: getColor(settings.minions.ranged.color),
+      blending: AdditiveBlending,
+      transparent: true,
+      depthWrite: false
+    });
+    this._boltRoot = new Group();
+    this._boltRoot.name = 'Bolts';
+    scene.add(this._boltRoot);
+    /** @type {{mesh: Mesh, vx: number, vz: number, life: number, active: boolean}[]} */
+    this.bolts = [];
 
     this.pool = new ObjectPool(() => {
       // Bodies stay parented to the group for their whole lifetime — hidden
@@ -92,6 +132,15 @@ export class MinionManager {
 
     this._puff = null;
     this._emit = {};
+  }
+
+  /** Hand the swarm its two rivals-turned-counterparties. */
+  setPlayer(player) {
+    this.player = player;
+  }
+
+  setDrops(drops) {
+    this.drops = drops;
   }
 
   /**
@@ -152,6 +201,9 @@ export class MinionManager {
     this.eyeMaterial.color.copy(this._eyeColor);
     this.eyeMaterial.emissive.copy(this._eyeColor);
     this.eyeMaterial.emissiveIntensity = c.eyeGlow;
+    this.rangedColor.copy(getColor(c.ranged.color));
+    this.bossColor.copy(getColor(c.boss.color));
+    this._boltMaterial.color.copy(getColor(c.ranged.color));
     this.bodyBase.roughness = c.roughness;
     this.root.visible = c.enabled || this.active.length > 0;
 
@@ -161,6 +213,8 @@ export class MinionManager {
         this.active[i].update(dt);
       }
     }
+
+    this._updateBolts(dt);
 
     // The director. Paused (dt = 0) it never fires, like every other clock.
     if (c.enabled && dt > 0) {
@@ -219,19 +273,165 @@ export class MinionManager {
 
   _spawnWave(count) {
     const c = settings.minions;
+    this.waveCount++;
+
+    // Every Nth wave arrives led by a boss: one body, the health of a squad,
+    // and the slam. It comes out of the same pool, so it costs nothing extra.
+    const bossWave = c.boss.everyNWaves > 0 && this.waveCount % c.boss.everyNWaves === 0;
+
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = c.spawnRadius + (Math.random() * 2 - 1) * c.spawnJitter;
       const x = this.target.x + Math.sin(angle) * radius;
       const z = this.target.z + Math.cos(angle) * radius;
 
+      const isBoss = bossWave && i === 0;
       const minion = this.pool.acquire();
       this.active.push(minion);
-      minion.spawn(x, z);
+      minion.spawn(x, z, {
+        boss: isBoss,
+        ranged: !isBoss && c.ranged.enabled && Math.random() < c.ranged.share
+      });
 
       // A puff of dust where it breaks through the floor.
-      this._puffAt(minion.position, 6, 0.3);
+      this._puffAt(minion.position, isBoss ? 26 : 6, isBoss ? 1.0 : 0.3);
+      if (isBoss) {
+        sfx.boss();
+        this._puffAt(minion.position, 20, 1.4);
+      }
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* their answer                                                        */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * A bite lands. The damage arrives resolved for the caste; the player's own
+   * invulnerability gate decides whether it matters.
+   */
+  attackPlayer(minion, damage, dirX, dirZ) {
+    if (!this.player) return;
+    this.player.damage(damage, dirX, dirZ);
+  }
+
+  /** The boss's shockwave: punished for standing close, announced either way. */
+  bossSlam(minion, dirX, dirZ) {
+    const c = settings.minions.boss;
+    this._puffAt(minion.position, 30, c.slamRadius * 0.55);
+    sfx.impact(0.7);
+    this.onSlam?.(minion.position, c.slamRadius);
+
+    if (!this.player) return;
+    // `this.target` is the character's live position — the player's feet.
+    const px = this.target.x;
+    const pz = this.target.z;
+    const dist = Math.hypot(px - minion.position.x, pz - minion.position.z);
+    if (dist <= c.slamRadius) {
+      const nx = dist > 1e-4 ? (px - minion.position.x) / dist : dirX;
+      const nz = dist > 1e-4 ? (pz - minion.position.z) / dist : dirZ;
+      this.player.damage(c.slamDamage, nx, nz);
+    }
+  }
+
+  /**
+   * A thrower lobs a bolt. The mesh comes off a small pool; the bolt flies
+   * flat, leaves a spark trail and only ever threatens the player.
+   */
+  fireBolt(minion) {
+    const c = settings.minions.ranged;
+    let bolt = this.bolts.find((b) => !b.active);
+    if (!bolt) {
+      if (this.bolts.length >= 48) return;
+      const mesh = new Mesh(this._boltGeometry, this._boltMaterial);
+      mesh.layers.set(LAYER.VFX);
+      mesh.visible = false;
+      this._boltRoot.add(mesh);
+      bolt = { mesh, vx: 0, vz: 0, life: 0, active: false };
+      this.bolts.push(bolt);
+    }
+
+    const px = this.target.x;
+    const pz = this.target.z;
+    const dx = px - minion.position.x;
+    const dz = pz - minion.position.z;
+    const dist = Math.hypot(dx, dz) || 1;
+
+    bolt.active = true;
+    bolt.life = c.boltLife;
+    bolt.vx = (dx / dist) * c.speed;
+    bolt.vz = (dz / dist) * c.speed;
+    bolt.mesh.position.set(minion.position.x, 0.75 * minion.root.scale.y, minion.position.z);
+    bolt.mesh.visible = true;
+  }
+
+  /** Fly, sparkle, hit or die. */
+  _updateBolts(dt) {
+    const c = settings.minions.ranged;
+    if (!this.bolts.length) return;
+
+    for (let i = this.bolts.length - 1; i >= 0; i--) {
+      const bolt = this.bolts[i];
+      if (!bolt.active) continue;
+
+      bolt.life -= dt;
+      bolt.mesh.position.x += bolt.vx * dt;
+      bolt.mesh.position.z += bolt.vz * dt;
+      bolt.mesh.position.y = 0.75 + Math.sin(frame.uTime.value * 9 + i) * 0.05;
+
+      let done = bolt.life <= 0;
+
+      if (!done && this.player && this.player.alive) {
+        const dx = bolt.mesh.position.x - this.target.x;
+        const dz = bolt.mesh.position.z - this.target.z;
+        if (Math.hypot(dx, dz) < 0.7) {
+          const speed = Math.hypot(bolt.vx, bolt.vz) || 1;
+          this.player.damage(c.damage, -bolt.vx / speed, -bolt.vz / speed);
+          done = true;
+        }
+      }
+
+      if (!done) {
+        // One spark per frame per bolt — the trail is the projectile's body.
+        this._sparkAt(bolt.mesh.position);
+      }
+
+      if (done) {
+        bolt.active = false;
+        bolt.mesh.visible = false;
+      }
+    }
+  }
+
+  _sparkAt(position) {
+    if (!this._spark) {
+      this._spark = this.particles.get('minion.boltTrail', {
+        capacity: 200,
+        shape: ParticleShape.SPARK,
+        additive: true,
+        softFade: 0.5
+      });
+      this._spark.uniforms.uFadeIn.value = 0.01;
+      this._spark.uniforms.uFadeOut.value = 0.25;
+      this._spark.setGradient(
+        getColor(settings.minions.ranged.color).clone(),
+        getColor(settings.minions.ranged.color).clone().multiplyScalar(0.7),
+        getColor(settings.minions.ranged.color).clone().multiplyScalar(0.3),
+        new Color(0x140502)
+      );
+    }
+    const emit = this._emit;
+    emit.position = position;
+    emit.radius = 0.06;
+    emit.speed = 0.4;
+    emit.speedVariance = 0.3;
+    emit.spread = 1.0;
+    emit.size = 0.22;
+    emit.sizeVariance = 0.1;
+    emit.life = 0.3;
+    emit.lifeVariance = 0.1;
+    emit.time = frame.uTime.value;
+    this._spark.emit(1, emit);
   }
 
   /** Called by a minion's own `update` once its corpse finishes sinking. */
@@ -245,7 +445,23 @@ export class MinionManager {
   /** Called the moment a minion's health empties — the body is still falling. */
   onDeath(minion) {
     this.onKill?.();
-    this._puffAt(minion.position, settings.minions.deathBurst, 0.4);
+    sfx.death();
+    this.drops?.drop(minion.position, minion.isBoss);
+    this._puffAt(minion.position, settings.minions.deathBurst * (minion.isBoss ? 2.2 : 1), 0.4);
+  }
+
+  /**
+   * Everything goes back into the floor at once — the restart path. Bolts
+   * die instantly, bodies take the quick dissolve so the field clears with
+   * a beat rather than a pop.
+   */
+  clearAll() {
+    for (const minion of this.active) minion.vanish();
+    for (const bolt of this.bolts) {
+      bolt.active = false;
+      bolt.mesh.visible = false;
+    }
+    this.waveCount = 0;
   }
 
   /* ------------------------------------------------------------------ */
@@ -291,6 +507,55 @@ export class MinionManager {
   }
 
   /* ------------------------------------------------------------------ */
+  /* reactions                                                           */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * A reaction just detonated on a body: a burst in the reaction's colour and
+   * its own sound. One shared emitter, re-tinted per detonation — the same
+   * trick the drops and the death puff already use.
+   *
+   * @param {Vector3} position
+   * @param {{name: string, color: string, bonus: number}} reaction
+   */
+  reactionAt(position, reaction) {
+    if (!this._reaction) {
+      this._reaction = this.particles.get('minion.reaction', {
+        capacity: 240,
+        shape: ParticleShape.SPARK,
+        additive: true,
+        softFade: 0.4
+      });
+      this._reaction.uniforms.uFadeIn.value = 0.015;
+      this._reaction.uniforms.uFadeOut.value = 0.28;
+    }
+    _c.set(reaction.color);
+    this._reaction.setGradient(
+      _c.clone().lerp(_white, 0.65),
+      _c.clone(),
+      _c.clone().multiplyScalar(0.45),
+      new Color(0x0a0a12)
+    );
+
+    const emit = this._emit;
+    emit.position = position;
+    emit.radius = 0.4;
+    emit.direction = _up;
+    emit.speed = 5.5;
+    emit.speedVariance = 1.6;
+    emit.spread = 1.0;
+    emit.size = 0.34;
+    emit.sizeVariance = 0.2;
+    emit.life = 0.42;
+    emit.lifeVariance = 0.14;
+    emit.spin = 2.5;
+    emit.time = frame.uTime.value;
+    this._reaction.emit(14, emit);
+
+    sfx.reaction();
+  }
+
+  /* ------------------------------------------------------------------ */
   /* damage queries                                                      */
   /* ------------------------------------------------------------------ */
 
@@ -302,12 +567,13 @@ export class MinionManager {
    * @param {Vector3} to
    * @param {number} width  half-width of the band, metres
    * @param {number} damage on the centre line, before falloff
-   * @param {{hitSet?: Map}} [options] pass the caster's registry for hit-once
+   * @param {{hitSet?: Map, element?: string}} [options] pass the caster's registry for hit-once
    */
   damageSegment(from, to, width, damage, options = {}) {
     if (damage <= 0 || width <= 0 || !this.active.length) return;
 
     const c = settings.minions;
+    const boost = this.player?.damageMult ?? 1;
     const dx = to.x - from.x;
     const dz = to.z - from.z;
     const lengthSq = dx * dx + dz * dz;
@@ -320,7 +586,7 @@ export class MinionManager {
       const pz = minion.position.z - from.z;
       let t = lengthSq > 1e-8 ? (px * dx + pz * dz) / lengthSq : 0;
       t = saturate(t);
-      const lateral = Math.hypot(px - dx * t, pz - dz * t) - c.bodyRadius * c.scale;
+      const lateral = Math.hypot(px - dx * t, pz - dz * t) - minion.bodyRadius;
       if (lateral > width) continue;
       if (hitSet && hitSet.get(minion) === minion.token) continue;
 
@@ -331,7 +597,7 @@ export class MinionManager {
       const dirZ = len > 1e-6 ? dz / len : 0;
 
       if (hitSet) hitSet.set(minion, minion.token);
-      minion.applyDamage(damage * falloff, dirX, dirZ);
+      minion.applyDamage(damage * boost * falloff, dirX, dirZ, options.element ?? null);
     }
   }
 
@@ -341,12 +607,13 @@ export class MinionManager {
    * @param {Vector3} center
    * @param {number} radius metres
    * @param {number} damage at the centre, before falloff
-   * @param {{hitSet?: Map}} [options]
+   * @param {{hitSet?: Map, element?: string}} [options]
    */
   damageCircle(center, radius, damage, options = {}) {
     if (damage <= 0 || radius <= 0 || !this.active.length) return;
 
     const c = settings.minions;
+    const boost = this.player?.damageMult ?? 1;
     const hitSet = options.hitSet;
 
     for (const minion of this.active) {
@@ -354,7 +621,7 @@ export class MinionManager {
       const dx = minion.position.x - center.x;
       const dz = minion.position.z - center.z;
       const d = Math.hypot(dx, dz);
-      const dist = d - c.bodyRadius * c.scale;
+      const dist = d - minion.bodyRadius;
       if (dist > radius) continue;
       if (hitSet && hitSet.get(minion) === minion.token) continue;
 
@@ -366,7 +633,7 @@ export class MinionManager {
       const dirZ = d > 1e-4 ? dz / d : 0;
 
       if (hitSet) hitSet.set(minion, minion.token);
-      minion.applyDamage(damage * falloff, dirX, dirZ);
+      minion.applyDamage(damage * boost * falloff, dirX, dirZ, options.element ?? null);
     }
   }
 
@@ -377,6 +644,11 @@ export class MinionManager {
     this.bars.dispose();
     this.bodyBase.dispose();
     this.eyeMaterial.dispose();
+    for (const bolt of this.bolts) bolt.mesh.removeFromParent();
+    this.bolts.length = 0;
+    this._boltGeometry.dispose();
+    this._boltMaterial.dispose();
+    this._boltRoot.removeFromParent();
     this.root.removeFromParent();
   }
 }

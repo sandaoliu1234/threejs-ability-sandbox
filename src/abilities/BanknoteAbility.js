@@ -223,7 +223,7 @@ export class BanknoteAbility extends Ability {
     if (this._tickTimer <= 0 && t <= 1) {
       const minions = this.ctx.minions;
       if (minions && cfg.tickDamage > 0) {
-        minions.damageCircle(_centre, cfg.zoneRadius, cfg.tickDamage);
+        minions.damageCircle(_centre, cfg.zoneRadius, cfg.tickDamage, { element: this.element });
       }
       this._tickTimer += cfg.tickInterval;
     }

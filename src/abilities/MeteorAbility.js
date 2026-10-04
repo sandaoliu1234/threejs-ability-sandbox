@@ -934,7 +934,7 @@ export class MeteorAbility extends Ability {
     /* the detonation strikes the minions around the crater */
     const minions = this.ctx.minions;
     if (minions && c.impactDamage > 0) {
-      minions.damageCircle(_impact, c.impactRadius, c.impactDamage, { hitSet: this.impactHits });
+      minions.damageCircle(_impact, c.impactRadius, c.impactDamage, { hitSet: this.impactHits, element: this.element });
     }
 
     /* the fireball, and a faster inner flash that sells the detonation */

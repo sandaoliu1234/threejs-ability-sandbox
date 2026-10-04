@@ -121,6 +121,35 @@ const BANKNOTE = WRAP(`
   <path d="M14 52q5-4 10-4M88 58q-4 5-9 6"/>
 `);
 
+/**
+ * Implosion — a dense core with two broken rings and four inward pulls.
+ *
+ * The only sigil whose story runs *inward*: the solid core is the singularity,
+ * the two dashed rings are the boundaries it will grow to, and the four dashes
+ * on the diagonals all point at the centre — the pull you watch while holding.
+ */
+const IMPLOSION = WRAP(`
+  <circle cx="50" cy="50" r="9"/>
+  <circle cx="50" cy="50" r="24" stroke-dasharray="34 17" transform="rotate(14 50 50)"/>
+  <circle cx="50" cy="50" r="38" stroke-dasharray="14 25.9" transform="rotate(-18 50 50)"/>
+  <path d="M77 23L64 36M23 23L36 36M77 77L64 64M23 77L36 64"/>
+`);
+
+/**
+ * Tether — an arc welded from a hand node to a sparking anchor.
+ *
+ * The small node low-left is the hand the arc hangs from, the long curve is
+ * the tether itself, the little snap-back zigzag where it meets the ball is
+ * the current, and the three ticks around the anchor say it spits.
+ */
+const TETHER = WRAP(`
+  <circle cx="21" cy="77" r="7"/>
+  <path d="M28 71C46 64 60 52 70 37"/>
+  <path d="M70 37L58 40L69 25"/>
+  <circle cx="77" cy="22" r="9"/>
+  <path d="M86 11L92 5M63 12L58 6M88 32L95 34"/>
+`);
+
 /** Keyed by the ids in `ELEMENTS`. */
 export const ELEMENT_SIGILS = {
   ice: ICE,
@@ -129,5 +158,7 @@ export const ELEMENT_SIGILS = {
   beam: BEAM,
   snare: SNARE,
   glacier: GLACIER,
-  banknote: BANKNOTE
+  banknote: BANKNOTE,
+  implosion: IMPLOSION,
+  tether: TETHER
 };

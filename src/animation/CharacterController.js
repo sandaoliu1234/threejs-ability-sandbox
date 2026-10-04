@@ -6,6 +6,7 @@ import {
   LoopRepeat,
   MathUtils,
   MeshStandardMaterial,
+  Quaternion,
   SRGBColorSpace,
   Vector3
 } from 'three';
@@ -22,6 +23,10 @@ const castUrl = (name) => `./models/${name}.fbx`;
 const FBX_SCALE = 0.01;
 /** Rigs vary; normalise to a believable human height so the world scale holds. */
 const TARGET_HEIGHT = 1.78;
+
+/** Scratch for the procedural walk pose — reused, never allocated. */
+const _walkQ = new Quaternion();
+const _pitchAxis = new Vector3(1, 0, 0);
 
 /**
  * Loads the rigged FBX, normalises it for the scene and drives its animation.
@@ -70,6 +75,22 @@ export class CharacterController {
     /** 0..1 lunge envelope, decays on its own after `castLunge()`. */
     this._lunge = 0;
     this._rightAxis = new Vector3(1, 0, 0);
+
+    /* --- locomotion (the WASD layer) and the fall --- */
+    /** Smoothed 0..1 walk intensity, fed by `setLocomotion` each frame. */
+    this._stride = 0;
+    this._walkPhase = 0;
+    /** 0..1 dash envelope — the pitch the dash rides in on. */
+    this._dash = 0;
+    this._dead = false;
+    this._deadAge = 0;
+
+    /**
+     * The rig's leg and arm bones, collected at load, that the procedural
+     * walk swings. Null until the rig exists; `{ bone, side }` pairs, side
+     * −1 for the character's left.
+     */
+    this._locomotionBones = null;
   }
 
   /**
@@ -107,6 +128,7 @@ export class CharacterController {
 
     this._prepareMaterials(fbx, skin);
     this._measureFacing(fbx);
+    this._locomotionBones = this._collectLocomotionBones(fbx);
 
     this.tilt.add(fbx);
     this.model = fbx;
@@ -259,6 +281,71 @@ export class CharacterController {
     this._rightAxis.set(0, 1, 0).cross(this.forwardAxis).normalize();
   }
 
+  /**
+   * Pick out the bones the procedural walk swings: thighs, shins and arms,
+   * each tagged with its side so the two halves can walk in opposition.
+   * Mixamo namespaces vary ("mixamorig:LeftUpLeg", "mixamorigLeftUpLeg"),
+   * which `_measureFacing` already knows how to strip.
+   *
+   * @param {import('three').Object3D} root
+   */
+  _collectLocomotionBones(root) {
+    const bones = { thighs: [], shins: [], arms: [] };
+    const track = (short, node) => {
+      const side = short.startsWith('Left') ? -1 : 1;
+      if (short.endsWith('UpLeg')) bones.thighs.push({ bone: node, side });
+      else if (short === 'LeftLeg' || short === 'RightLeg') bones.shins.push({ bone: node, side });
+      else if (short === 'LeftArm' || short === 'RightArm') bones.arms.push({ bone: node, side });
+    };
+    root.traverse((node) => {
+      if (!node.isBone) return;
+      track(node.name.split(':').pop().replace(/^mixamorig/i, ''), node);
+    });
+    return bones;
+  }
+
+  /**
+   * The walk cycle, laid over whatever the mixer wrote this frame.
+   *
+   * The rig ships with an idle clip and the cast clips, and nothing that moves
+   * the legs across the floor — left alone, a walking character glides with
+   * its idle pose, which reads as skating. Rather than ship more Mixamo files,
+   * the walk is *procedural*, in keeping with everything else here: thighs
+   * swing in opposition, each shin folds on the recovery swing, the arms
+   * counter-swing against their own legs. Every offset is composed ON TOP of
+   * the animated quaternion and scaled by `_stride`, so standing still is a
+   * clean fade back to the idle and a cast keeps its gesture (the arms stand
+   * down while a cast clip owns them).
+   */
+  _applyWalkPose() {
+    const bones = this._locomotionBones;
+    if (!bones || this._stride < 0.02 || this._dead) return;
+
+    const swingAmp = settings.player.walkSwing * this._stride;
+    const phase = this._walkPhase;
+
+    for (const { bone, side } of bones.thighs) {
+      const swing = Math.sin(phase + (side < 0 ? 0 : Math.PI)) * swingAmp;
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, swing));
+    }
+
+    // The shin folds a beat behind its thigh — foot down through the reach,
+    // heel kicking up on the way through. Bends only ever fold one way.
+    for (const { bone, side } of bones.shins) {
+      const fold = Math.max(0, Math.sin(phase + (side < 0 ? -0.9 : Math.PI - 0.9))) * swingAmp * 1.35;
+      bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, fold));
+    }
+
+    // The arms counter-swing against their own legs — but only when a cast
+    // clip is not already choreographing them.
+    if (!this._cast) {
+      for (const { bone, side } of bones.arms) {
+        const swing = Math.sin(phase + (side < 0 ? Math.PI : 0)) * swingAmp * 0.5;
+        bone.quaternion.multiply(_walkQ.setFromAxisAngle(_pitchAxis, swing));
+      }
+    }
+  }
+
   /* ------------------------------------------------------------------ */
   /* cast clips                                                          */
   /* ------------------------------------------------------------------ */
@@ -347,11 +434,60 @@ export class CharacterController {
     if (this._lunge > 0) {
       this._lunge = Math.max(0, this._lunge - c.castSettle * dt);
     }
-    // A short overshoot at the front of the envelope reads as a snap rather than
-    // a slow bow.
+    // A short overshoot at the front of the envelope reads as a snap rather
+    // than a slow bow.
     const envelope = this._lunge * this._lunge * (1 + 0.35 * Math.sin(this._lunge * Math.PI));
-    this.tilt.quaternion.setFromAxisAngle(this._rightAxis, envelope * c.castLean);
+
+    // The walk leans the body into its motion about the same axis the cast
+    // lunges around, so the two compose by summation instead of fighting over
+    // the quaternion.
+    const lean =
+      envelope * c.castLean +
+      this._stride * settings.player.walkLean +
+      this._dash * settings.player.dashLean;
+    this.tilt.quaternion.setFromAxisAngle(this._rightAxis, lean);
     this.tilt.position.copy(this.forwardAxis).multiplyScalar(-envelope * c.castRecoil);
+
+    // The fall rides the same tilt: dead, the body pitches all the way down.
+    if (this._dead) {
+      this._deadAge += dt;
+      const t = Math.min(1, this._deadAge / 0.55);
+      this.tilt.quaternion.setFromAxisAngle(this._rightAxis, t * t * 1.45);
+      this.tilt.position.set(0, 0, 0);
+    }
+  }
+
+  /**
+   * Feed the walk: `speed01` is the current speed over the run speed. The
+   * stride is smoothed here so a stop doesn't snap upright, and the phase
+   * drives the little ground-eating bounce on the root.
+   */
+  setLocomotion(speed01, dt) {
+    const rate = speed01 > this._stride ? 7 : 4.5;
+    this._stride += (speed01 - this._stride) * Math.min(1, rate * Math.max(dt, 0));
+    this._walkPhase += dt * (5 + 6 * this._stride);
+    this.root.position.y = Math.abs(Math.sin(this._walkPhase)) * 0.055 * this._stride;
+  }
+
+  /** Call every frame: 1 while a dash is in flight, 0 otherwise (decays fast). */
+  setDashing(dashing, dt) {
+    const target = dashing ? 1 : 0;
+    this._dash += (target - this._dash) * Math.min(1, (dashing ? 22 : 8) * Math.max(dt, 0));
+  }
+
+  /** True while the death fall is playing or held. */
+  get dead() {
+    return this._dead;
+  }
+
+  /**
+   * Drop the body (or pick it back up on restart). The fall plays on `tilt`
+   * like everything else postural, so the heading is untouched.
+   */
+  setDead(dead) {
+    this._dead = dead;
+    this._deadAge = 0;
+    if (dead) this._stride = 0;
   }
 
   /** Put the character back on the floor, upright and facing where it was. */
@@ -372,6 +508,10 @@ export class CharacterController {
 
     this.mixer.timeScale = settings.global.animationSpeed;
     this.mixer.update(dt);
+
+    // The walk rides on top of the mixed pose — after it, so the swing wins
+    // over the idle's legs for this frame.
+    this._applyWalkPose();
   }
 
   get position() {

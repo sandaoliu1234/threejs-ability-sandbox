@@ -1201,7 +1201,7 @@ export class GlacierAbility extends Ability {
     const minions = this.ctx.minions;
     if (minions && c.hitDamage > 0) {
       this._centrePoint(_centre);
-      minions.damageCircle(_centre, c.zoneRadius, c.hitDamage, { hitSet: this.minionsHit });
+      minions.damageCircle(_centre, c.zoneRadius, c.hitDamage, { hitSet: this.minionsHit, element: this.element });
     }
     this._tickTimer = c.tickInterval;
 
@@ -1295,7 +1295,7 @@ export class GlacierAbility extends Ability {
       const minions = this.ctx.minions;
       if (minions && c.tickDamage > 0) {
         this._centrePoint(_centre);
-        minions.damageCircle(_centre, c.zoneRadius, c.tickDamage);
+        minions.damageCircle(_centre, c.zoneRadius, c.tickDamage, { element: this.element });
       }
       this._tickTimer += c.tickInterval;
     }
