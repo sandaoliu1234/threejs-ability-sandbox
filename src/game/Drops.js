@@ -22,8 +22,10 @@ const _heal = new Color();
  * the small dopamine loop that makes walking over to where a minion died
  * feel like a decision.
  *
- * The boss pays `bossGoldMult` coins worth the whole wave, flung in a ring —
- * the one moment the magnet gets to work hard.
+ * The boss pays out a full ring of coins instead — ten of them, each worth
+ * double the top of the ordinary coin range, flung wide on a radius rather
+ * than dropped on the spot. That is the one moment in a wave where collecting
+ * is a lap of the arena instead of a step, which is the magnet's best moment.
  */
 const MAX_ITEMS = 96;
 
@@ -67,7 +69,12 @@ export class Drops {
       mesh.visible = false;
       this.root.add(mesh);
       const item = { mesh, heal: false, worth: 1, age: 0, life: 0, vx: 0, vz: 0, active: false };
-      this.items.push(item);
+      // Only the free list is seeded here. `items` is the *live* list: it is
+      // what `update` walks, what `root.visible` reads and what `clear` empties.
+      // Seeding it as well put all MAX_ITEMS invisible coins on the floor at
+      // the origin — where the caster starts — so the first frame magnetised
+      // them, banked them as gold and pushed every one back onto `_free` a
+      // second time, doubling the pool.
       this._free.push(item);
     }
 
@@ -81,8 +88,9 @@ export class Drops {
   }
 
   /**
-   * Shed loot where a minion fell. Bosses fling a ring of coins worth a whole
-   * wave; everyone else rolls a heal orb against `healChance`, else gold.
+   * Shed loot where a minion fell. A boss flings a ring of ten coins worth 6
+   * apiece — 60, against the 1-3 an ordinary body leaves — and never an orb;
+   * everyone else rolls a heal orb against `healChance`, else gold.
    *
    * @param {import('three').Vector3} position
    * @param {boolean} [boss]
@@ -259,6 +267,9 @@ export class Drops {
     for (const item of this.items) {
       item.active = false;
       item.mesh.visible = false;
+      // A coin cleared mid-expiry is still shrunk from its sink; `update` only
+      // restores the scale on the frame it drains an item, which this bypasses.
+      item.mesh.scale.setScalar(1);
       this._free.push(item);
     }
     this.items.length = 0;

@@ -280,6 +280,10 @@ export class HUD {
   toggleShop() {
     const open = this.shop.hidden;
     this.shop.hidden = !open;
+    // The shop opens in the hint panel's column; CSS fades the hint out so the
+    // two never stack. The class lives here because `hidden` is the one place
+    // that knows the shop's state.
+    this.root.classList.toggle('is-shopping', open);
     return open;
   }
 

@@ -80,8 +80,10 @@ export class CharacterController {
     /** Smoothed 0..1 walk intensity, fed by `setLocomotion` each frame. */
     this._stride = 0;
     this._walkPhase = 0;
-    /** 0..1 dash envelope — the pitch the dash rides in on. */
-    this._dash = 0;
+    /** The dash somersault: rising edge arms it, `update` advances the clock. */
+    this._rolling = false;
+    this._rollT = 0;
+    this._dashHeld = false;
     this._dead = false;
     this._deadAge = 0;
 
@@ -438,13 +440,22 @@ export class CharacterController {
     // than a slow bow.
     const envelope = this._lunge * this._lunge * (1 + 0.35 * Math.sin(this._lunge * Math.PI));
 
+    // The dash somersault owns the whole posture while it plays: one eased
+    // turn about the right axis, riding a hop arc that lifts the body so the
+    // inverted half clears the floor. It replaces lean, recoil and bob.
+    if (this._rolling) {
+      const p = Math.min(1, this._rollT / Math.max(0.01, settings.player.rollTime));
+      const ease = p < 0.5 ? 2 * p * p : 1 - ((-2 * p + 2) ** 2) / 2;
+      this.tilt.quaternion.setFromAxisAngle(this._rightAxis, ease * Math.PI * 2);
+      this.tilt.position.set(0, 0, 0);
+      this.root.position.y = Math.sin(p * Math.PI) * settings.player.rollHeight;
+      return;
+    }
+
     // The walk leans the body into its motion about the same axis the cast
     // lunges around, so the two compose by summation instead of fighting over
     // the quaternion.
-    const lean =
-      envelope * c.castLean +
-      this._stride * settings.player.walkLean +
-      this._dash * settings.player.dashLean;
+    const lean = envelope * c.castLean + this._stride * settings.player.walkLean;
     this.tilt.quaternion.setFromAxisAngle(this._rightAxis, lean);
     this.tilt.position.copy(this.forwardAxis).multiplyScalar(-envelope * c.castRecoil);
 
@@ -469,10 +480,23 @@ export class CharacterController {
     this.root.position.y = Math.abs(Math.sin(this._walkPhase)) * 0.055 * this._stride;
   }
 
-  /** Call every frame: 1 while a dash is in flight, 0 otherwise (decays fast). */
+  /**
+   * Call every frame with whether the dash shove is in flight. The rising
+   * edge launches the somersault, which then runs on its own clock — longer
+   * than the shove, so the body lands upright while the last of the momentum
+   * dies. A death mid-roll stands down; the fall takes the posture over.
+   */
   setDashing(dashing, dt) {
-    const target = dashing ? 1 : 0;
-    this._dash += (target - this._dash) * Math.min(1, (dashing ? 22 : 8) * Math.max(dt, 0));
+    if (dashing && !this._dashHeld && !this._dead) {
+      this._rolling = true;
+      this._rollT = 0;
+    }
+    this._dashHeld = dashing;
+
+    if (this._rolling) {
+      this._rollT += dt;
+      if (this._rollT >= settings.player.rollTime || this._dead) this._rolling = false;
+    }
   }
 
   /** True while the death fall is playing or held. */
@@ -487,7 +511,10 @@ export class CharacterController {
   setDead(dead) {
     this._dead = dead;
     this._deadAge = 0;
-    if (dead) this._stride = 0;
+    if (dead) {
+      this._stride = 0;
+      this._rolling = false; // the fall owns the posture from here
+    }
   }
 
   /** Put the character back on the floor, upright and facing where it was. */

@@ -1656,6 +1656,39 @@ export class Editor {
     R(combat, c, 'knockback', 0, 2, 0.05, '受击击退（米）');
     R(combat, c, 'staggerTime', 0, 1, 0.05, '受击踉跄（秒）');
 
+    // The three blocks that gave the swarm its teeth. They live beside the
+    // older folders rather than under them because each is a separate clock:
+    // biting, throwing and slamming do not share a cadence.
+    const bite = folder.addFolder('还击');
+    const biteCfg = c.attack;
+    R(bite, biteCfg, 'damage', 0, 40, 1, '咬合伤害');
+    R(bite, biteCfg, 'interval', 0.2, 5, 0.05, '咬合间隔（秒）');
+    R(bite, biteCfg, 'windup', 0, 1, 0.01, '突进预警（秒）');
+    R(bite, biteCfg, 'reach', 0, 3, 0.05, '额外触及（米）');
+
+    const ranged = folder.addFolder('远程');
+    const rangedCfg = c.ranged;
+    ranged.add(rangedCfg, 'enabled').name('启用投掷手').listen();
+    R(ranged, rangedCfg, 'share', 0, 1, 0.01, '投掷手占比');
+    R(ranged, rangedCfg, 'stop', 2, 20, 0.5, '保持距离（米）');
+    R(ranged, rangedCfg, 'interval', 0.5, 8, 0.1, '投掷间隔（秒）');
+    R(ranged, rangedCfg, 'damage', 0, 40, 1, '投掷伤害');
+    R(ranged, rangedCfg, 'speed', 2, 20, 0.5, '弹道速度（米/秒）');
+    R(ranged, rangedCfg, 'boltLife', 0.5, 8, 0.1, '弹道存活（秒）');
+    ranged.addColor(rangedCfg, 'color').name('弹道颜色');
+
+    const boss = folder.addFolder('BOSS');
+    const bossCfg = c.boss;
+    R(boss, bossCfg, 'everyNWaves', 1, 20, 1, '每 N 波出现');
+    R(boss, bossCfg, 'healthMult', 1, 40, 0.5, '生命倍数');
+    R(boss, bossCfg, 'scaleMult', 1, 5, 0.05, '体型倍数');
+    R(boss, bossCfg, 'speedMult', 0.2, 1.5, 0.01, '速度倍数');
+    R(boss, bossCfg, 'slamInterval', 1, 20, 0.5, '踏地间隔（秒）');
+    R(boss, bossCfg, 'slamRadius', 1, 14, 0.1, '踏地半径（米）');
+    R(boss, bossCfg, 'slamDamage', 0, 80, 1, '踏地伤害');
+    R(boss, bossCfg, 'slamWindup', 0.1, 3, 0.05, '抬脚预警（秒）');
+    boss.addColor(bossCfg, 'color').name('BOSS 配色');
+
     const death = folder.addFolder('死亡');
     R(death, c, 'fallTime', 0.1, 1.5, 0.05, '倒下时长（秒）');
     R(death, c, 'deadPause', 0, 1.5, 0.05, '倒地停留（秒）');
@@ -1827,7 +1860,8 @@ export class Editor {
     R(dash, p, 'dashTime', 0.05, 0.5, 0.01, '冲刺时长');
     R(dash, p, 'dashCooldown', 0.2, 5, 0.05, '冷却');
     R(dash, p, 'dashInvuln', 0, 1.5, 0.01, '闪避无敌');
-    R(dash, p, 'dashLean', 0, 1.2, 0.01, '冲刺前倾');
+    R(dash, p, 'rollTime', 0.15, 0.8, 0.01, '翻滚时长');
+    R(dash, p, 'rollHeight', 0, 1.5, 0.05, '跃起高度');
 
     const drops = this.gui.addFolder('💰  掉落');
     drops.add(settings.drops, 'enabled').name('开启');
@@ -1868,10 +1902,10 @@ export class Editor {
     R(folder, c, 'cooldown', 0.5, 15, 0.1, '冷却');
     R(folder, c, 'range', 5, 30, 0.5, '射程');
     R(folder, c, 'minRange', 0.5, 10, 0.5, '最小距离');
+    R(folder, c, 'zoneRadius', 0.5, 14, 0.05, '范围半径');
 
     const charge = folder.addFolder('蓄力');
     R(charge, c, 'chargeMax', 0.4, 4, 0.05, '蓄满时长');
-    R(charge, c, 'chargeMisfire', 0.02, 0.5, 0.01, '误触阈值');
 
     const collapse = folder.addFolder('坍缩');
     R(collapse, c, 'radiusMin', 1, 8, 0.1, '最小半径');

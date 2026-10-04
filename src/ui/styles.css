@@ -778,13 +778,46 @@ body {
   right: 16px;
 }
 
-@media (max-width: 760px) {
-  .hud__help,
-  .hud__stats {
-    display: none;
+/* The bar is centred and the help card owns the bottom-left corner, so the two
+   collide until the viewport is about 1660px wide: nine slots + eight gaps +
+   the minion pill is 1074px at full width, which reaches past the help card's
+   right edge (290px) below that. The slots step down with the viewport, but
+   only so far — a CJK label at 11px needs ~50px and the glyph is a fixed 34px,
+   so anything under ~66px wraps the label onto two lines. Below the step where
+   that stops being enough the help card steps up out of the action row instead
+   (see the very end of this file). */
+@media (max-width: 1560px) {
+  .hud__abilities {
+    gap: 8px;
   }
   .ability-card {
-    width: 78px;
+    width: 84px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .ability-card {
+    width: 74px;
+    padding: 11px 6px 9px;
+  }
+  .ability-card__label {
+    font-size: 11px;
+  }
+  .hud__help {
+    max-width: 218px;
+  }
+}
+
+@media (max-width: 900px) {
+  .hud__abilities {
+    gap: 6px;
+  }
+  .ability-card {
+    width: 62px;
+    padding: 9px 4px 7px;
+  }
+  .ability-card__label {
+    font-size: 10px;
   }
   .minion-toggle__label {
     display: none;
@@ -1312,5 +1345,82 @@ body {
   .contact__name {
     font-size: 15px;
   }
+}
+
+/* The nine-slot bar needs room the two corner cards do not give it: below a
+   full desktop width the card narrows to its portrait and the studio line goes,
+   which buys the bar the middle third of the screen. Declared here, after the
+   base contact rules, so it actually wins the cascade. */
+@media (max-width: 1180px) {
+  .hud__contact {
+    width: 222px;
+  }
+  .contact__link-text em {
+    display: none;
+  }
+  .contact__portrait {
+    flex-basis: 46px;
+    width: 46px;
+    height: 46px;
+  }
+}
+
+/* The nine-slot bar owns the bottom band; the two corner cards step up out of
+   it once they would overlap. 118px clears the bar's own 81px height, its 26px
+   inset and a 10px gutter, so the slots, the hp bar and the dash pip keep the
+   band that is actually looked at. Declared after the base rules for both cards
+   so it wins the cascade.
+   - help: 1074px of bar runs into the 260px help card below ~1660px.
+   - contact: below ~1060px the 860px bar reaches the portrait in the corner. */
+@media (max-width: 1660px) {
+  .hud__help {
+    bottom: 118px;
+  }
+}
+
+/* The one window the lifted card cannot serve. Below 1180px it narrows to 218px
+   and its lines wrap out to ~452px of height, so on a short screen it grows up
+   into the hp bar (top-left, from 88px down). It is reference material rather
+   than required reading, and H toggles it by hand — so it steps aside instead of
+   covering the health bar. */
+@media (max-width: 1180px) and (max-height: 740px) {
+  .hud__help {
+    display: none;
+  }
+}
+
+@media (max-width: 1060px) {
+  .hud__contact {
+    bottom: 118px;
+  }
+}
+
+/* Under the phone breakpoint there is no room for a reference panel at all, and
+   nine 62px slots only just fit: let the bar take two rows rather than shrink
+   the labels past legibility. Two rows are ~172px tall, so the contact portrait
+   steps above them; both rules outrank their own earlier declarations because
+   they are the last word on each card. Below this width the sandbox is a
+   curiosity, not a target. */
+@media (max-width: 760px) {
+  .hud__help,
+  .hud__stats {
+    display: none;
+  }
+  .hud__abilities {
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: calc(100vw - 24px);
+    bottom: 18px;
+  }
+  .hud__contact {
+    bottom: 214px;
+  }
+}
+
+/* The shop opens in the help card's own column (left: 22px, top: 138px), so
+   while it is open the hint panel stands down rather than peeking out around
+   it. `toggleShop` owns the class; H still owns `.hud__help.is-hidden`. */
+.hud.is-shopping .hud__help {
+  opacity: 0;
 }
 

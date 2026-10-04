@@ -145,6 +145,26 @@ export class HoldAbility {
   /* lifecycle — driven by AimController's hold events via App           */
   /* ------------------------------------------------------------------ */
 
+  /**
+   * The *tap* cast, so `AbilityManager#cast` can treat a hold element like any
+   * other line cast.
+   *
+   * A hold's whole nature lives on the length of a press, which is why this
+   * class has no `spawn` of its own — but the element is still one of the nine
+   * the HUD offers, and the manager dispatches a cast to whatever body the pool
+   * hands back. Without this, `cast()` would call a method that isn't here and
+   * take the pooled instance down with it (acquired, never released).
+   *
+   * A tap is therefore the degenerate hold: zero charge, released this frame,
+   * so the ability plays the payoff it already has and recycles through the one
+   * phase machine. Same signature as `Ability#spawn` so the manager stays
+   * shape-agnostic.
+   */
+  spawn(origin, direction, distance) {
+    this.beginHold(origin, direction, distance);
+    this.releaseHold();
+  }
+
   beginHold(origin, direction, distance) {
     this.origin.copy(origin).setY(0);
     this.direction.copy(direction).setY(0).normalize();

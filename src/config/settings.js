@@ -260,12 +260,14 @@ export const settings = {
     walkLean: 0.14, // radians the torso pitches into the run
     walkSwing: 0.55, // radians the thighs swing through the walk cycle
 
-    /* --- the dash (Space): a shove of velocity, not a teleport --- */
+    /* --- the dash (Space): a shove of velocity with a full flip over it --- */
     dashSpeed: 16, // metres/second while dashing
     dashTime: 0.16, // seconds the shove lasts
     dashCooldown: 1.5,
     dashInvuln: 0.3, // the grace window it grants
-    dashLean: 0.42 // radians the body pitches into the dash
+    rollTime: 0.34, // seconds the somersault takes (longer than the shove —
+    // the body lands upright while the last of the momentum dies)
+    rollHeight: 0.6 // metres the hop peaks at, so the flip clears the floor
   },
 
   /* ------------------------------------------------------------------ */
@@ -2054,10 +2056,18 @@ export const settings = {
     cooldown: 6,
     range: 18,
     minRange: 3,
+    /**
+     * The footprint the aim circle measures out, metres. It is `radiusMin`, not
+     * `radiusMax`: before the button goes down the ring can only promise the
+     * *smallest* collapse, and then the ability's own marker grows to show the
+     * real radius as the charge builds. Leaving this out (as this block used to)
+     * parked `AimController.zoneRadius` on its `?? 1` fallback — a one-metre ring
+     * drawn for a three-metre blast.
+     */
+    zoneRadius: 3.2,
 
     /* --- the charge --- */
     chargeMax: 2.0, // seconds to full power
-    chargeMisfire: 0.12, // releases before this still fire, at minimum power
 
     /* --- the collapse, at minimum → maximum charge --- */
     radiusMin: 3.2,

@@ -141,7 +141,22 @@ export class AbilityManager {
     }
 
     const ability = this.pools.get(element).acquire();
-    ability.spawn(origin, direction, distance);
+    // A body that throws on its way out must still go home: `acquire` already
+    // took it out of `free`, so an exception here would leak the instance (and
+    // its meshes) for the rest of the session. Abilities are pooled, so every
+    // exit path has to hand the body back.
+    try {
+      ability.spawn(origin, direction, distance);
+    } catch (error) {
+      this.pools.get(element).release(ability);
+      throw error;
+    }
+
+    // A hold's tap path routes through its own events, so the body may already
+    // be in the list. Re-order rather than double-enter: `active` is also the
+    // retirement queue, and one body sitting in it twice would retire early.
+    const seen = this.active.indexOf(ability);
+    if (seen >= 0) this.active.splice(seen, 1);
     this.active.push(ability);
     return ability;
   }

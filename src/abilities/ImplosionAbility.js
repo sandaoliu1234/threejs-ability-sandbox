@@ -188,6 +188,10 @@ export class ImplosionAbility extends HoldAbility {
   /* ------------------------------------------------------------------ */
 
   onBegin() {
+    // A pooled body arrives carrying the last collapse's radius. Nothing reads
+    // it before the first `onHold` rewrites it, but a hold should never report
+    // a size it is not currently holding — reset it to what a fresh charge is.
+    this.radius = this.config.radiusMin;
     sfx.holdStart(this.element);
   }
 
