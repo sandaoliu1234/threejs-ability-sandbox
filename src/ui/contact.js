@@ -62,8 +62,9 @@ export const CONTACT_MARKUP = `
       <div class="contact__head">
         <div class="contact__portrait">
           <span class="contact__frame">
-            <img src="./contact/p.jpg" alt="Chiro 的照片" decoding="async" draggable="false" />
+            <img src="./contact/p.jpg" alt="原作者 Chiro 的照片" decoding="async" draggable="false" />
           </span>
+          <span class="contact__badge">原作者</span>
         </div>
         <div class="contact__who">
           <span class="contact__status"><i></i>正在接单</span>

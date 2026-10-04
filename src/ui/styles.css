@@ -680,6 +680,28 @@ body {
   transform: scale(1.38) translate(-11.5%, 9.5%);
 }
 
+/* The tag pinned across the chin of the portrait: the face is the original
+   author's, not whoever is running the scene. Sits above the turning ring, so
+   it is painted after the frame and ignores the pointer entirely. */
+.contact__badge {
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg-solid);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  color: var(--ui-text-dim);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .contact__who {
   position: relative;
   min-width: 0;
