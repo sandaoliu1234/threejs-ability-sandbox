@@ -2152,15 +2152,64 @@ export const settings = {
   /* ------------------------------------------------------------------ */
   /**
    * A minion struck by an element remembers it for `window` seconds. A *differ-
-   * ent* element hitting inside that window detonates a reaction: a named bonus
-   * for the classic pairs, a generic resonance for everyone else. The bonus is
-   * a multiplier on the second hit only, and the status is consumed — no
-   * chain-stunning a crowd with one cast.
+   * ent* element hitting inside that window detonates a reaction: a bonus on the
+   * second hit only, and the status is consumed — no chain-stunning a crowd with
+   * one cast.
+   *
+   * Three layers resolve a pair, cheapest and most specific first:
+   *
+   *   1. `pairs` — a hand-written entry for one exact pair. These are the
+   *      reactions the game is *known* for, and they win over everything.
+   *   2. `families` + `vs` — every element belongs to a family, and each pair of
+   *      families has a phenomenon. This is what makes the table complete: nine
+   *      elements are thirty-six pairs, and a family layer covers all of them
+   *      without thirty-six hand-written rows.
+   *   3. two elements of the *same* family fall through to the generic
+   *      resonance — more of the same element is more of the same element, not
+   *      a new phenomenon. That is a rule, not a gap in the table.
+   *
+   * Layer 1 exists because a family layer is coarser than the fiction: ice and
+   * a glacier are both frost, but they meet lightning differently (`ice+thunder`
+   * is 超导, `glacier+thunder` is 电网), and `beam+ice` is a same-family pair
+   * that still has a name of its own.
+   *
+   * Adding an ability therefore costs one line under `families` and inherits
+   * the whole matrix, instead of eight new rows here.
    */
   reactions: {
     enabled: true,
     window: 2.0, // seconds an element's memory lasts
-    bonus: 1.35 // the generic resonance multiplier
+    bonus: 1.35, // layer 3: the generic resonance multiplier
+
+    /* --- layer 1: the named pairs, one exact pair each --- */
+    pairs: {
+      'ice+thunder': { name: '超导', color: '#9fe8ff', bonus: 1.5 },
+      'ice+meteor': { name: '蒸爆', color: '#d8f2ff', bonus: 1.35 },
+      'meteor+thunder': { name: '感电', color: '#ffb36a', bonus: 1.4 },
+      'beam+ice': { name: '霜辉', color: '#c0ffff', bonus: 1.3 },
+      'glacier+thunder': { name: '电网', color: '#b9ffd9', bonus: 1.35 }
+    },
+
+    /* --- layer 2: every element in exactly one family --- */
+    families: {
+      frost: ['ice', 'glacier', 'beam'], // cold, and the starlight that reads as cold
+      storm: ['thunder', 'snare', 'tether'], // all three are lightning
+      ember: ['meteor'],
+      arcane: ['banknote', 'implosion'] // matter conjured and matter collapsed
+    },
+
+    /**
+     * Family pair → the phenomenon. Colours are derived from the two element
+     * accents that met, so this table only has to carry names and numbers.
+     */
+    vs: {
+      'frost+storm': { name: '超导', bonus: 1.5 },
+      'frost+ember': { name: '蒸爆', bonus: 1.35 },
+      'storm+ember': { name: '感电', bonus: 1.4 },
+      'frost+arcane': { name: '霜蚀', bonus: 1.35 },
+      'storm+arcane': { name: '过载', bonus: 1.45 },
+      'ember+arcane': { name: '燃荒', bonus: 1.4 }
+    }
   },
 
   /* ------------------------------------------------------------------ */
@@ -2330,28 +2379,77 @@ export const ELEMENT_META = {
 };
 
 /**
- * Element reactions — the named pairs and what meeting on one body is worth.
- * Keys are the two element ids sorted and joined; anything not listed falls
- * back to the generic resonance in `settings.reactions`.
+ * Which family an element belongs to, or null if nobody claimed it.
+ *
+ * Deliberately a scan rather than a cached map: the family table lives in
+ * `settings`, so a preset or the editor can rewrite it under us, and a cache
+ * keyed on the table would go stale silently. Four short arrays cost nothing at
+ * the rate this is called — once per damaging hit.
  */
-export const REACTIONS = {
-  'ice+thunder': { name: '超导', color: '#9fe8ff', bonus: 1.5 },
-  'ice+meteor': { name: '蒸爆', color: '#d8f2ff', bonus: 1.35 },
-  'meteor+thunder': { name: '感电', color: '#ffb36a', bonus: 1.4 },
-  'beam+ice': { name: '霜辉', color: '#c0ffff', bonus: 1.3 },
-  'glacier+thunder': { name: '电网', color: '#b9ffd9', bonus: 1.35 }
-};
+export function familyOf(element) {
+  const families = settings.reactions.families;
+  for (const name of Object.keys(families)) {
+    if (families[name].includes(element)) return name;
+  }
+  return null;
+}
+
+/** The generic resonance: layer three of the resolution order. */
+export function resonance() {
+  return { name: '共鸣', color: '#ffffff', bonus: settings.reactions.bonus };
+}
+
+/** Blend two `#rrggbb` strings; used to colour a family pair by the two accents. */
+function mixHex(a, b, t = 0.5) {
+  const parse = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const [ar, ag, ab] = parse(a);
+  const [br, bg, bb] = parse(b);
+  const out = [ar, ag, ab].map((v, i) => {
+    const other = [br, bg, bb][i];
+    return Math.round(v + (other - v) * t);
+  });
+  return '#' + out.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
 
 /**
  * Look up the reaction when element `b` strikes a body carrying element `a`.
  * Same element never reacts; distinct elements always do something.
  *
+ * Resolution order, most specific first: the hand-written pair, then the two
+ * families, then the generic resonance. See `settings.reactions` for why the
+ * family layer exists at all.
+ *
  * @returns {{name: string, color: string, bonus: number}|null}
  */
 export function reactionOf(a, b) {
   if (!a || !b || a === b) return null;
-  const key = [a, b].sort().join('+');
-  return REACTIONS[key] ?? { name: '共鸣', color: '#ffffff', bonus: settings.reactions.bonus };
+  const r = settings.reactions;
+
+  // Both tables are read order-insensitively. The element pairs happen to be
+  // written sorted today, but a table keyed on a canonical order silently
+  // ignores any row someone writes the other way round — which is exactly the
+  // bug the family layer shipped with: sorting the family *names* turned
+  // 'frost+ember' into a lookup for 'ember+frost', and four of the six family
+  // pairs quietly fell through to the generic resonance.
+  const named = r.pairs[a + '+' + b] ?? r.pairs[b + '+' + a];
+  if (named) return named;
+
+  const fa = familyOf(a);
+  const fb = familyOf(b);
+  if (!fa || !fb || fa === fb) return resonance();
+
+  const hit = r.vs[fa + '+' + fb] ?? r.vs[fb + '+' + fa];
+  if (!hit) return resonance();
+
+  // Colour is derived, so a family pair needs no hand-picked swatch: it is the
+  // two accents that met, blended.
+  const accentA = ELEMENT_META[a]?.accent;
+  const accentB = ELEMENT_META[b]?.accent;
+  const color = accentA && accentB ? mixHex(accentA, accentB) : '#ffffff';
+  return { name: hit.name, color, bonus: hit.bonus };
 }
 
 /** How the given ability is aimed. Line unless its metadata says otherwise. */

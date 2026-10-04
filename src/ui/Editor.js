@@ -1888,6 +1888,37 @@ export class Editor {
     reactions.add(settings.reactions, 'enabled').name('开启');
     R(reactions, settings.reactions, 'window', 0.5, 5, 0.1, '记忆窗口 (秒)');
     R(reactions, settings.reactions, 'bonus', 1, 2.5, 0.05, '共鸣倍率');
+
+    // Layer 1: the hand-written pairs. These win over the family layer, so they
+    // get their own folder — this is the table the help panel promises.
+    const named = reactions.addFolder('命名配对');
+    R(named, settings.reactions.pairs['ice+thunder'], 'bonus', 1, 2.5, 0.05, '超导 冰+雷');
+    R(named, settings.reactions.pairs['ice+meteor'], 'bonus', 1, 2.5, 0.05, '蒸爆 冰+灰');
+    R(named, settings.reactions.pairs['meteor+thunder'], 'bonus', 1, 2.5, 0.05, '感电 灰+雷');
+    R(named, settings.reactions.pairs['beam+ice'], 'bonus', 1, 2.5, 0.05, '霜辉 光+冰');
+    R(named, settings.reactions.pairs['glacier+thunder'], 'bonus', 1, 2.5, 0.05, '电网 冠+雷');
+
+    // Layer 2: the family matrix. Every element pair the named table does not
+    // claim resolves here, so these six numbers decide the other thirty-one
+    // pairs. The membership list is shown read-only: it is the shape of the
+    // system, not a knob.
+    const families = reactions.addFolder('家族矩阵');
+    const roster = {
+      寒霜系: settings.reactions.families.frost.join(' · '),
+      风暴系: settings.reactions.families.storm.join(' · '),
+      灰烬系: settings.reactions.families.ember.join(' · '),
+      秘法系: settings.reactions.families.arcane.join(' · ')
+    };
+    families.add(roster, '寒霜系').name('寒霜系 =').disable();
+    families.add(roster, '风暴系').name('风暴系 =').disable();
+    families.add(roster, '灰烬系').name('灰烬系 =').disable();
+    families.add(roster, '秘法系').name('秘法系 =').disable();
+    R(families, settings.reactions.vs['frost+storm'], 'bonus', 1, 2.5, 0.05, '寒霜 × 风暴');
+    R(families, settings.reactions.vs['frost+ember'], 'bonus', 1, 2.5, 0.05, '寒霜 × 灰烬');
+    R(families, settings.reactions.vs['storm+ember'], 'bonus', 1, 2.5, 0.05, '风暴 × 灰烬');
+    R(families, settings.reactions.vs['frost+arcane'], 'bonus', 1, 2.5, 0.05, '寒霜 × 秘法');
+    R(families, settings.reactions.vs['storm+arcane'], 'bonus', 1, 2.5, 0.05, '风暴 × 秘法');
+    R(families, settings.reactions.vs['ember+arcane'], 'bonus', 1, 2.5, 0.05, '灰烬 × 秘法');
   }
 
   /**

@@ -38,7 +38,14 @@ export default async function run(ctx) {
       boss: count('BOSS'),
       attackLeaves: leaves(s.minions.attack),
       rangedLeaves: leaves(s.minions.ranged),
-      bossLeaves: leaves(s.minions.boss)
+      bossLeaves: leaves(s.minions.boss),
+      // The reaction tables only carry a knob for their multiplier, so project
+      // each entry down to its bonus before counting leaves.
+      reactionKids: (find('元素反应')?.folders ?? []).map(title),
+      namedKnobs: count('命名配对'),
+      familyKnobs: count('家族矩阵'),
+      namedLeaves: leaves(Object.fromEntries(Object.entries(s.reactions.pairs).map(([k, v]) => [k, v.bonus]))).length,
+      familyLeaves: leaves(Object.fromEntries(Object.entries(s.reactions.vs).map(([k, v]) => [k, v.bonus]))).length
     };
   })()`);
 
@@ -46,7 +53,9 @@ export default async function run(ctx) {
     total: out.total,
     folders: out.folders,
     minionKids: out.minionKids,
-    knobs: { bite: out.bite, ranged: out.ranged, boss: out.boss }
+    knobs: { bite: out.bite, ranged: out.ranged, boss: out.boss },
+    reactionKids: out.reactionKids,
+    reactionKnobs: { named: out.namedKnobs, family: out.familyKnobs }
   });
 
   // Each new block is four to nine leaves wide, and the project's contract is
@@ -59,6 +68,22 @@ export default async function run(ctx) {
   expect(out.ranged === out.rangedLeaves.length, 'one knob per thrower setting', { knobs: out.ranged, leaves: out.rangedLeaves });
   expect(out.boss === out.bossLeaves.length, 'one knob per boss setting', { knobs: out.boss, leaves: out.bossLeaves });
   expect(out.total > 1289, 'the editor grew rather than shrank', { total: out.total });
+
+  // The reaction table used to live outside `settings`, which meant its numbers
+  // were the one part of the game you could not tune from the panel. It lives
+  // inside now, and this is what keeps it there.
+  expect(out.reactionKids.includes('命名配对'), 'the named pairs have a folder', { kids: out.reactionKids });
+  expect(out.reactionKids.includes('家族矩阵'), 'the family matrix has a folder', {});
+  expect(
+    out.namedKnobs === out.namedLeaves,
+    'every named pair can be retuned from the panel',
+    { knobs: out.namedKnobs, leaves: out.namedLeaves }
+  );
+  expect(
+    out.familyKnobs >= out.familyLeaves,
+    'every family pair can be retuned from the panel',
+    { knobs: out.familyKnobs, leaves: out.familyLeaves, note: 'the roster rows are read-only extras' }
+  );
 
   return { total: out.total };
 }

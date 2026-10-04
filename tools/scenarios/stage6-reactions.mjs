@@ -16,24 +16,69 @@
  * What it locks down:
  *   - the matrix, pair by pair, bonus and name, and that it is symmetric;
  *   - the bonus is what reaches the health bar, not just what is reported;
+ *   - the three layers resolve in order: the hand-written pair wins, then the
+ *     family matrix, then the generic resonance for two elements of one family;
+ *   - the matrix is *complete* — all thirty-six pairs land somewhere, and no
+ *     element is stranded without a reaction of its own;
  *   - a reaction consumes the memory, so a third hit starts over;
  *   - the memory is on the simulation clock and expires at `window`;
  *   - two hits of the same element never react;
  *   - `reactions.enabled = false` gates the bonus (but not the bookkeeping);
- *   - the whole thing runs through the real `damageCircle` the abilities use;
- *   - which element pairs have no named reaction of their own.
+ *   - the whole thing runs through the real `damageCircle` the abilities use.
  */
 import { harness, round } from './_harness.mjs';
 
-/** The table the README and the help panel promise, as documented pairs. */
-const DOCUMENTED = {
+/**
+ * The system as designed, restated here on purpose. If someone edits the
+ * tables in `settings.js`, this is the second opinion that disagrees.
+ */
+
+/** Layer 1: the hand-written pairs the help panel names. */
+const NAMED = {
   'ice+thunder': { name: '超导', bonus: 1.5 },
   'ice+meteor': { name: '蒸爆', bonus: 1.35 },
   'meteor+thunder': { name: '感电', bonus: 1.4 },
   'beam+ice': { name: '霜辉', bonus: 1.3 },
   'glacier+thunder': { name: '电网', bonus: 1.35 }
 };
+
+/** Layer 2: every element in one family, and what two families make. */
+const FAMILIES = {
+  frost: ['ice', 'glacier', 'beam'],
+  storm: ['thunder', 'snare', 'tether'],
+  ember: ['meteor'],
+  arcane: ['banknote', 'implosion']
+};
+const VS = {
+  'frost+storm': { name: '超导', bonus: 1.5 },
+  'frost+ember': { name: '蒸爆', bonus: 1.35 },
+  'storm+ember': { name: '感电', bonus: 1.4 },
+  'frost+arcane': { name: '霜蚀', bonus: 1.35 },
+  'storm+arcane': { name: '过载', bonus: 1.45 },
+  'ember+arcane': { name: '燃荒', bonus: 1.4 }
+};
+
+/** Layer 3: two elements of the same family are more of the same element. */
 const FALLBACK = { name: '共鸣', bonus: 1.35 };
+
+const familyOf = (el) => Object.keys(FAMILIES).find((f) => FAMILIES[f].includes(el)) ?? null;
+
+/**
+ * Resolve one unordered key the way the design says it should, and say which
+ * layer decided it — the layer is the interesting part, since that is what the
+ * "no element is stranded" and "same family means resonance" checks are about.
+ */
+function expectedFor(key) {
+  if (NAMED[key]) return { ...NAMED[key], layer: 'named' };
+  const [a, b] = key.split('+');
+  const fa = familyOf(a);
+  const fb = familyOf(b);
+  if (!fa || !fb || fa === fb) return { ...FALLBACK, layer: 'same-family' };
+  // Both orders, because the family table is keyed on readable names rather
+  // than on a canonical sort — see the note in `reactionOf`.
+  const hit = VS[fa + '+' + fb] ?? VS[fb + '+' + fa];
+  return hit ? { ...hit, layer: 'family' } : { ...FALLBACK, layer: 'family-unlisted' };
+}
 
 export default async function (ctx) {
   const h = harness(ctx);
@@ -242,16 +287,18 @@ export default async function (ctx) {
   h.expect(symmetric.length === 0, 'and the reaction is symmetric — the pair is sorted, not ordered', { disagree: symmetric.slice(0, 4) });
 
   let namedSeen = 0;
+  const layers = { named: [], family: [], 'same-family': [], 'family-unlisted': [] };
   for (const [key, rows] of byKey) {
-    const want = DOCUMENTED[key] ?? FALLBACK;
+    const want = expectedFor(key);
     const got = rows[0];
     const okName = got.reported !== null && got.reported.name === want.name;
     const okBonus = got.reported !== null && Math.abs(got.reported.bonus - want.bonus) < 1e-9;
     const okLanded = Math.abs(got.multiplier - want.bonus) < 1e-6;
-    if (DOCUMENTED[key]) namedSeen++;
+    if (NAMED[key]) namedSeen++;
+    layers[want.layer].push(key);
     h.expect(
       okName && okBonus,
-      key + ' detonates as ' + want.name + ' x' + want.bonus,
+      key + ' resolves via ' + want.layer + ' as ' + want.name + ' x' + want.bonus,
       { reported: got.reported, want }
     );
     h.expect(
@@ -260,10 +307,49 @@ export default async function (ctx) {
       { measured: got.multiplier, want: want.bonus, secondCost: got.secondCost }
     );
   }
+  h.rec('which layer decided each pair', {
+    named: layers.named,
+    family: layers.family,
+    sameFamily: layers['same-family'],
+    familyUnlisted: layers['family-unlisted']
+  });
   h.expect(
-    namedSeen === Object.keys(DOCUMENTED).length,
-    'every documented named pair exists in the table',
-    { found: namedSeen, documented: Object.keys(DOCUMENTED) }
+    namedSeen === Object.keys(NAMED).length,
+    'every hand-written pair exists in the table and wins over the family layer',
+    { found: namedSeen, documented: Object.keys(NAMED) }
+  );
+
+  // The family layer is what makes the table complete. Two checks, one per
+  // direction: crossing families always produces a phenomenon, and staying
+  // inside one falls through to 共鸣 — which is a rule, not a hole in the
+  // table. A hand-written pair is the exception that proves the point: `beam`
+  // and `ice` are both frost and still have a name of their own, so layer 1
+  // pairs are excluded from the same-family rule.
+  const crossFamily = [...byKey.entries()].filter(([key]) => {
+    const [a, b] = key.split('+');
+    const fa = familyOf(a);
+    return fa && familyOf(b) && fa !== familyOf(b);
+  });
+  const sameFamily = [...byKey.entries()].filter(([key]) => {
+    if (NAMED[key]) return false;
+    const [a, b] = key.split('+');
+    const fa = familyOf(a);
+    return fa && fa === familyOf(b);
+  });
+  h.expect(
+    sameFamily.length > 0,
+    'and the family layer actually caught something — the rule is not vacuously true',
+    { sameFamilyPairs: sameFamily.map(([key]) => key) }
+  );
+  h.expect(
+    crossFamily.every(([, rows]) => rows[0].reported && rows[0].reported.name !== '共鸣'),
+    'crossing families always produces a named phenomenon',
+    { unnamed: crossFamily.filter(([, r]) => !r[0].reported || r[0].reported.name === '共鸣').map(([k]) => k) }
+  );
+  h.expect(
+    sameFamily.every(([, rows]) => rows[0].reported && rows[0].reported.name === '共鸣'),
+    'same-family pairs fall back to the generic resonance',
+    { odd: sameFamily.filter(([, r]) => !r[0].reported || r[0].reported.name !== '共鸣').map(([k]) => k) }
   );
 
   const unwired = new Set();
@@ -274,7 +360,11 @@ export default async function (ctx) {
     }
     if (!hasNamed) unwired.add(el);
   }
-  h.rec('elements with no named reaction of their own', [...unwired]);
+  h.expect(
+    unwired.size === 0,
+    'no element is stranded without a reaction of its own',
+    { unwired: [...unwired], elements: matrix.elements }
+  );
 
   /* ------------------------------------------------------------------ */
   /* 2. the memory: consumed by a detonation, never by a repeat           */

@@ -104,7 +104,7 @@ whole cage is that same ribbon strip threaded along four different parametric pa
 targeting circle, the rime, the burns and the molten cracks are signed-distance and noise shaders,
 and the mist, sparks, chips and glitter are GPU particles.
 
-**Every parameter is a live slider** — 1310 of them — and they stay live while the simulation is
+**Every parameter is a live slider** — 1325 of them — and they stay live while the simulation is
 paused. That is the point of the project: freeze a frame mid-eruption, mid-strike or mid-burn with
 **P**, then reshape the silhouette, the palette and the timing against a still image.
 
@@ -216,6 +216,13 @@ Every hit brands a minion with the element that landed, and the brand is remembe
 detonates a reaction: the second hit takes a multiplier and the brand is consumed. One memory, one
 reaction — no single ability can chain-stun a crowd.
 
+Three layers resolve a pair, most specific first: the **hand-written pairs**, then the **family
+matrix**, then plain **resonance**. Nine elements make thirty-six pairs, and all thirty-six land
+somewhere — none of them was forgotten.
+
+Layer one is the hand-written table. These are the reactions the sandbox is known for, and they win
+over everything below them:
+
 | Pair | Reaction | Bonus |
 | --- | --- | --- |
 | ice + thunder | 超导 (Superconduct) | ×1.5 |
@@ -224,13 +231,38 @@ reaction — no single ability can chain-stun a crowd.
 | beam + ice | 霜辉 (Frost Shine) | ×1.3 |
 | glacier + thunder | 电网 (Grid) | ×1.35 |
 
-Any other pair falls back to a generic 共鸣 (Resonance) at ×1.35 (`reactions.bonus`) — the same
-multiplier, without a name. `reactionOf(a, b)` returns null when the two elements are the same or
-when either is missing, so a body can never react with itself. The bonus lands on the second hit
-only: it is a damage multiplier and nothing else, carrying no stun and no displacement. The whole
-visible feedback is one burst of sparks at the body, tinted to that reaction's colour, plus its
-sound — which is also why reactions never appear on the HUD, and why "brand it with ice, then land a
-bolt" is the only reason in the sandbox to order your casts.
+Layer two is the family matrix. Every element belongs to exactly one family, and each pair of
+families has a phenomenon:
+
+| Family | Members | | Family pair | Reaction | Bonus |
+| --- | --- | --- | --- | --- | --- |
+| frost | ice, glacier, beam | | frost × storm | 超导 (Superconduct) | ×1.5 |
+| storm | thunder, snare, tether | | frost × ember | 蒸爆 (Steam Burst) | ×1.35 |
+| ember | meteor | | storm × ember | 感电 (Conducted) | ×1.4 |
+| arcane | banknote, implosion | | frost × arcane | 霜蚀 (Frostbite) | ×1.35 |
+| | | | storm × arcane | 过载 (Overload) | ×1.45 |
+| | | | ember × arcane | 燃荒 (Wildfire) | ×1.4 |
+
+Layer three is **共鸣 (Resonance)**: two elements of the *same* family meeting — ice and beam, say —
+produce no new phenomenon and fall back to ×1.35 (`reactions.bonus`), without a name. That is a rule,
+not a hole in the table: more of the same element is more of the same element. And two hits of one
+element never react at all — `reactionOf(a, b)` returns null when `a === b`.
+
+Layer one has to exist because the family layer is coarser than the fiction: ice and glacier are both
+frost, but they meet lightning differently (超导 ×1.5 against 电网 ×1.35), and beam + ice is a
+same-family pair that still has a name of its own. What the family layer buys is the cost of adding an
+ability — one line under `families` inherits the whole thirty-six-pair matrix instead of eight new
+rows. A family pair's colour is not a constant either; it is blended from the two element accents that
+met.
+
+All three layers live in `settings.reactions` (`pairs` / `families` / `vs`), so the eleven bonuses are
+live sliders under **Growth → Element reactions** and travel with a preset — this table used to live
+outside `settings`, which made it the one set of numbers in the project you could not drag.
+
+The bonus lands on the second hit only: it is a damage multiplier and nothing else, carrying no stun
+and no displacement. The whole visible feedback is one burst of sparks at the body, tinted to that
+reaction's colour, plus its sound — which is also why reactions never appear on the HUD, and why
+"brand it with ice, then land a bolt" is the only reason in the sandbox to order your casts.
 
 ---
 
@@ -796,7 +828,9 @@ off the screen.
 - **Drops** — on/off, the gold floor and ceiling and its lifetime, the magnet and pickup radii, the
   heal-orb chance and amount, and the colours of both drops.
 - **Upgrades** — the base cost and the price curve, the per-level gain of each of the four tracks, and
-  an **Element reactions** subfolder (on/off, memory window, resonance bonus).
+  an **Element reactions** subfolder (on/off, memory window, resonance bonus) holding **Named pairs**
+  (a bonus per hand-written pair) and the **Family matrix** (a bonus per family pair, plus four
+  read-only rows naming the members).
 - **Presets** save to `localStorage`, and can be duplicated, deleted, exported to JSON, imported
   from JSON, or reset to the shipped defaults.
 
