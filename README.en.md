@@ -6,11 +6,16 @@ A skillshot VFX sandbox built with **Three.js**, **Vite** and hand-written **GLS
 
 ![Nova Beam mid-burn, with the HUD's ability bar, live stats and contact card](docs/screenshots/hud.jpg)
 
-Seven abilities and two ways to aim them. Four are **line casts**: press the key to arm, a
-League-of-Legends style arrow appears on the ground and swings with the mouse, click to fire. The
-other three are **far casts**: the arrow is replaced by a circle with a deliberately thick boundary
-that follows the cursor and answers the only question a ground-targeted AoE has to answer before you
-commit — how much space is this going to take.
+Nine abilities and three ways to aim them. Four are **line casts**: press the key to arm, a
+League-of-Legends style arrow appears on the ground and swings with the mouse, click to fire. Three
+more are **far casts**: the arrow is replaced by a circle with a deliberately thick boundary that
+follows the cursor and answers the only question a ground-targeted AoE has to answer before you
+commit — how much space is this going to take. The last two are **hold casts**: a circle aims them
+too, but aiming is all that circle does — the cast itself happens during the time you keep the left
+button down. **Z** charges a singularity that grows wider and harder the longer you hold it, **N**
+channels a lightning tether that welds itself between the caster's hand and the cursor and follows
+it. Nothing is spent until you let go, and `Esc` or a right click interrupts either one without
+paying for it.
 
 <p>
   <img src="docs/screenshots/aim-arrow.jpg" width="49%" alt="The line-cast aim arrow on the ground" />
@@ -75,6 +80,22 @@ cold off its rim, then shatters plate by plate and sinks back into the floor.
 the notes fill the footprint, swirling, fluttering and slowly climbing — and when the storm lets
 go, they spiral outward and flutter down like leaves.
 
+**Z — Implosion.** The first hold cast. Press and hold the left button and a disc opens on the
+ground under the cursor: it grows from 3.2 m out to 9 m, its boundary band, tick marks and interior
+fill writing out how much space this is going to take in real time, until the singularity matures
+and swallows the middle of its own marker. Nothing happens until you release — two seconds of charge
+carries both radius and damage to their ceiling (140 to 460), while a quick tap is a poke at the
+floor of that range: there is no minimum press — a tap fires immediately, just at minimum
+power. The camera pushes in toward the landing point as the charge builds, so the room has already
+begun to darken before you let go.
+
+**N — Tether.** The second hold cast, and the first damage source in the sandbox with no travel time
+and no footprint to place — it is a steering wheel rather than a shot. Hold, and an arc of lightning
+welds itself from the caster's hand to the point on the ground under the cursor and follows it as you
+move: the hand is steady, the chaos lives at the anchor. Anything caught along that line is chewed at
+26 damage every 0.12 s. Let go and it snaps with a discharge at the far end. Its numbers are per-tick
+and modest, which is exactly why it hurts to stand inside.
+
 Everything you can see is generated. There are no textures, no sprite sheets and no meshes on
 disk except the character and the two banknote scans: the crystals are procedural geometry, the
 bolt is a strip of ribbon placed entirely by a vertex shader, the meteor is an icosphere cratered and sliced by fracture
@@ -83,7 +104,7 @@ whole cage is that same ribbon strip threaded along four different parametric pa
 targeting circle, the rime, the burns and the molten cracks are signed-distance and noise shaders,
 and the mist, sparks, chips and glitter are GPU particles.
 
-**Every parameter is a live slider** — 1229 of them — and they stay live while the simulation is
+**Every parameter is a live slider** — 1310 of them — and they stay live while the simulation is
 paused. That is the point of the project: freeze a frame mid-eruption, mid-strike or mid-burn with
 **P**, then reshape the silhouette, the palette and the timing against a still image.
 
@@ -95,26 +116,154 @@ References for the look: `icecast.jpg`, `thundercast.jpg`, `superbeam.jpg` and
 ## Minion waves
 
 The stage is not empty. With **M** (or the toggle beside the ability bar) on, a wave director keeps
-sending small creatures up out of the floor around the character to converge on you:
+sending small creatures up out of the floor around the character to converge on you — and then to
+hit back:
 
 - **Waves** — every ~2.6 s a small wave (3 by default) emerges on a ring 19 m out, capped at 24
   alive; a separation pass pushes neighbours apart, so they form a ring rather than a stack.
 - **Health bars** — one billboard bar per minion, the whole swarm costing **one** instanced draw
   call. Hidden at full health, shown for ~2.2 s after a hit, with a white trailing segment where
   the health just was.
-- **Damage** — all seven abilities hurt them: line casts sweep a segment from the previous front to
+- **Damage** — all nine abilities hurt them: line casts sweep a segment from the previous front to
   the current one (fast bolts cannot tunnel through a body), far casts strike on landing and keep
-  ticking while they stand, and the beam burns its ground track at a DPS while it holds. Hits carry
-  lateral falloff and crits.
+  ticking while they stand, the beam burns its ground track at a DPS while it holds, and the two hold
+  casts settle by charge and by tick. Hits carry lateral falloff and crits.
 - **Feedback and death** — a hit flashes the body white, shoves it along the blow and staggers it
   briefly; at zero health it topples along the blow, pauses, sinks back into the floor and puffs
   into dust, then returns to the pool — zero garbage over a long session.
-- **Tuning** — the editor's Minions folder adjusts waves, speed, health, damage taken, death timing
-  and the health bars live — including while paused (**P**).
+- **They hit back** — a minion in reach bites on its own `interval` clock, leaning visibly forward
+  for the 0.28 s `attack.windup` before the bite lands for 8 damage. Stepping out of that circle
+  winds the clock back, so re-engaging is never an instant bite: the threat is something you can walk
+  out of.
+- **The ranged caste** — 22% of each wave (`ranged.share`) comes up as a thrower instead. It holds at
+  8.5 m rather than closing and lobs a bolt every 2.6 s — one pooled additive sphere with a particle
+  trail, and it only ever threatens the player. It never bites; its whole threat is the ball it keeps
+  tossing from safety, and that is what takes "stand still and cast" off the table.
+- **The boss** — every 5th wave arrives led by one body: 14× health (1400 points), 2.1× scale, speed
+  cut to 0.72×, so it lumbers. Every 7 s it **inflates by 42%** as its tell, then drops a 5 m ground
+  slam — 0.7 s of wind-up, 24 damage if you are standing inside the ring. The landing shakes the camera
+  whether or not it caught you, because the ground is the event and the damage is only the receipt. It
+  comes out of the same minion pool and costs nothing extra; only its dice are bigger.
+- **Tuning** — the editor's Minions folder adjusts waves, movement, health and damage, bite, ranged,
+  boss, death, looks and the health bars live — including while paused (**P**). Each of the three
+  counter-attack rhythms has its own sub-folder, so the bite interval, the thrower share and the
+  inflate tell can all be dragged while a brawl is happening.
 
 Each ability carries its own damage numbers (`hitDamage` / `hitWidth` / `tickDamage`…) in its own
-settings block, and `damageTaken` is the global difficulty dial. The HUD shows the live minion
-count and the kill counter top-right.
+settings block, and `damageTaken` is the global difficulty dial. The HUD shows the live minion count,
+the kills, the wave number and your gold top-right.
+
+---
+
+## Player movement and health
+
+The character used to be the origin of the world: it stood still while the world happened around it.
+Now it has a body — it walks, it bleeds, and it turns a somersault.
+
+**WASD** (or the arrow keys) moves it at 4.4 m/s, **relative to the camera**: W is always "away from
+the camera", whichever way you have orbited, and diagonal input is normalised so running at an angle
+is not faster. The arena is held by `groundRadius` at 24 m: past that the position is eased back
+toward the origin — no wall, just a soft edge.
+
+Health is 100 points (`maxHp`), regenerating at 2 points a second once 5 seconds have passed without
+a hit (`regen` / `regenDelay`). Both numbers are deliberately sleepy: enough to be full again between
+two waves, not enough to outlast a gang-up. A hit flashes the screen, shakes the camera and hands you
+0.5 s of invulnerability (`hurtInvuln`) — just long enough to squeeze back out of the bite range.
+
+**Space is the dodge.** It is a 16 m/s shove lasting 0.16 s (`dashSpeed` / `dashTime`) on a 1.5 s
+cooldown (`dashCooldown`), and for the first 0.3 s of it you have i-frames (`dashInvuln`) — so
+**dashing through** an attack genuinely works: a hit that checks while that window is open passes
+straight through. A full somersault rides on top of the shove: `rollTime` is 0.34 s, longer than the
+dash itself, the body tucks and flips a complete turn about its own right axis and peaks 0.6 m off
+the floor (`rollHeight`), so it lands back on its feet *after* the momentum has spent itself. The
+flip runs on its own clock, which is exactly why it can finish rolling before it stands up. Dying
+mid-roll stands the flip down and lets the fall take the posture over.
+
+At zero health the character goes down and a card comes up with the run's numbers — kills, waves
+survived, gold picked up. **Enter**, or the button on the card, starts a new run: gold and all four
+upgrade levels go back to zero, the swarm is cleared and the loot returns to the pool.
+
+---
+
+## Loot and the shop
+
+Every minion death drops gold — 1 to 3 coins (`goldMin` / `goldMax`) — and 8% of the time
+(`healChance`) it drops an orb worth 20 health instead. Coins sink away after 25 s (`goldLife`), are
+magnetised inside 2.6 m (`magnetRadius`) and collected inside 0.9 m (`pickupRadius`). The moment
+there is gold on the floor, the floor reads as an economy: a coin accelerating toward you is most of
+the dopamine loop. The boss is the exception — it drops a flat 10 coins worth 6 each (60) and never a
+heal orb.
+
+**T** opens the shop, and opening it pauses nothing. Four flat tracks, each level a plain multiplier:
+
+- **Spell power** (`damagePerLevel`) — +15% damage per level.
+- **Haste** (`cooldownPerLevel`) — −8% cooldown per level, floored at 0.35× so it never reaches zero.
+- **Vitality** (`vitalityPerLevel`) — +25 max health per level, paid back immediately as a heal, so
+  the purchase is felt at once.
+- **Pace** (`pacePerLevel`) — +10% move speed per level, with the pickup magnet widening by the same
+  fraction: one track buys two feelings.
+
+The next level of every track costs `baseCost × costGrowth^level` — 20 to start, 1.6× each time — so
+the curve bites by the third purchase. Buying plays the pickup sound and refreshes the panel in
+place; a track you cannot afford is simply dimmed.
+
+---
+
+## Element reactions
+
+Every hit brands a minion with the element that landed, and the brand is remembered for
+`reactions.window` — 2 seconds. Hitting that same body with a **different** element inside the window
+detonates a reaction: the second hit takes a multiplier and the brand is consumed. One memory, one
+reaction — no single ability can chain-stun a crowd.
+
+| Pair | Reaction | Bonus |
+| --- | --- | --- |
+| ice + thunder | 超导 (Superconduct) | ×1.5 |
+| ice + meteor | 蒸爆 (Steam Burst) | ×1.35 |
+| meteor + thunder | 感电 (Conducted) | ×1.4 |
+| beam + ice | 霜辉 (Frost Shine) | ×1.3 |
+| glacier + thunder | 电网 (Grid) | ×1.35 |
+
+Any other pair falls back to a generic 共鸣 (Resonance) at ×1.35 (`reactions.bonus`) — the same
+multiplier, without a name. `reactionOf(a, b)` returns null when the two elements are the same or
+when either is missing, so a body can never react with itself. The bonus lands on the second hit
+only: it is a damage multiplier and nothing else, carrying no stun and no displacement. The whole
+visible feedback is one burst of sparks at the body, tinted to that reaction's colour, plus its
+sound — which is also why reactions never appear on the HUD, and why "brand it with ice, then land a
+bolt" is the only reason in the sandbox to order your casts.
+
+---
+
+## Sound
+
+`src/audio/Sound.js` is the only line of audible code in here, and it is the sequel to "nothing on
+disk": there is not a single audio file. Every sound is synthesised at runtime from oscillators and a
+one-second noise buffer, shaped by filter and gain envelopes and pushed through a `DynamicsCompressor`
+(threshold −18 dB, ratio 8) — because a stack of casts landing together would otherwise clip the whole
+mix flat, and the compressor turns that into one shove instead of a crackle.
+
+It is a singleton (`sfx`) for the same reason `frame` is: sound is a service, not a system. The HUD,
+the abilities, the minions and the camera shake all import the same `sfx` and call one verb on it, and
+the WebAudio nodes are throwaway — built for a single sound and left to the collector after `stop()`,
+so nothing is allocated per play.
+
+The chain is `master → compressor → destination`, and the master rides over four channels: `cast` (a
+spell leaving the hand), `impact` (what the camera shake is answering), `combat` (minions and the
+player trading blows) and `ui` (cards, coins, the dodge). Every sound reads `settings.audio` as it
+plays, so the editor's faders really are a mixing desk — pull `impact` down while a cast is still in
+the air and it goes quiet.
+
+An AudioContext can only be created on a user gesture, so `sfx.unlock()` is bound to the first
+pointerdown or keydown on the window; until then every call is a silent no-op — the loading screen is
+genuinely quiet, and the world only starts making noise after the first click.
+
+The verbs are named for what they mean rather than for a file — `cast(element)` (a distinct patch per
+element: glass and air for the ice, a crack for the bolt, a low roll for the meteor, a wind-up for the
+beam, paper being fanned for Banknote Storm), `impact(amount)`, `hit`, `death`, `hurt`, `dash`,
+`pickup`, `heal`, `boss`, `ui`, `holdStart(element)`, `channelTick`, `reaction`, `gameOver`. When two
+dozen minions are hit in the same frame, each name carries a rate gate of its own (`_gate`), without
+which all those hits would stack into one long click. The **Sound** folder in the editor is that
+mixing desk, with the faders right there.
 
 ---
 
@@ -183,11 +332,17 @@ shown as a visible sky. The stage keeps its flat dark backdrop.
 | **V** (or **5**) | Arm Voltaic Snare — a far cast, aimed with a circle |
 | **X** (or **6**) | Arm Glacial Crown — a far cast, aimed with a circle |
 | **B** (or **7**) | Arm Banknote Storm — a far cast, aimed with a circle |
-| **Move the mouse** | Swing the aim arrow, or move the far-cast circle |
-| **Left click** | Cast along the arrow, or drop the circle where it is |
-| **Esc** / **right click** | Cancel an armed cast |
+| **Z** (or **8**) | Arm Implosion — a hold cast: press and hold the left button to charge, release to fire |
+| **N** (or **9**) | Arm Tether — a hold cast: press and hold the left button to channel, release to snap |
+| **W A S D** / **arrow keys** | Move — camera-relative, diagonals normalised |
+| **Space** | Somersault dodge — a 16 m/s shove with brief i-frames |
+| **Move the mouse** | Swing the aim arrow, or move the far-cast and hold circle |
+| **Left click** | Cast along the arrow, drop the circle where it is, or charge a hold cast |
+| **Esc** / **right click** | Cancel an armed cast — or interrupt a hold in progress, spending nothing |
 | **Right mouse + drag** | Orbit the camera |
 | **Scroll** | Zoom |
+| **T** | Open / close the shop |
+| **Enter** | Confirm — and start a new run from the death card |
 | **G** | Show/hide the VFX editor |
 | **P** | Pause / resume — *the editor keeps applying* |
 | **C** | Clear all active effects |
@@ -198,7 +353,8 @@ shown as a visible sky. The stage keeps its flat dark backdrop.
 selected. Aiming closer than the selected ability's `minRange` tints it red and refuses the cast;
 set `minRange` to 0 if you would rather cast at your own feet, which is what the Snare ships with —
 a trap you cannot drop on yourself is missing half its uses. Cooldowns are per ability too, so
-spending one slot never locks the other out.
+spending one slot never locks the other out. A hold cast's charge is measured on **real** time, so
+pausing never lets a charge mature behind your back.
 
 ---
 
@@ -206,17 +362,19 @@ spending one slot never locks the other out.
 
 ```
 src/
-  abilities/      Ability base class (the travelling front), the seven abilities,
-                  the pooling manager
+  abilities/      Ability base class (the travelling front) and HoldAbility (hold casts),
+                  the nine abilities, the pooling manager
   animation/      FBX character loading, AnimationMixer, the per-ability cast clips,
-                  the procedural cast lunge
+                  the procedural cast lunge and somersault
   assets/         Procedural crystal and asteroid geometry, the bolt ribbon strip,
                   the beam tube and its shock discs
+  audio/          Runtime-synthesised sound — oscillators and noise, no audio file on disk
   config/         settings.js — the single source of truth for every parameter
   core/           App, Renderer, CameraRig, Time, Layers, shared frame uniforms
   effects/        Aim arrow, far-cast circle, ground decals, fissures, bursts,
                   light pool, shake, flash
-  input/          InputManager (events) and AimController (both targeting shapes)
+  game/           Player (health, upgrades, the somersault), Drops (gold and heal orbs)
+  input/          InputManager (events) and AimController (two indicators, one controller)
   loaders/        AssetLoader with a shared LoadingManager
   materials/      IceMaterial, LightningMaterial, MeteorMaterial,
                   VolumetricFireMaterial, BeamMaterial, SnareMaterial, and friends
@@ -224,7 +382,8 @@ src/
   particles/      GPU particle system + engine and rate emitters
   postprocessing/ Composer pipeline, grade shader, distortion shader
   shaders/lib/    Shared GLSL: noise library, common helpers
-  ui/             HUD, lil-gui editor, preset manager, styles
+  ui/             HUD (ability bar, health bar, shop, death card), lil-gui editor,
+                  preset manager, contact.js (the card), glyphs.js (ability sigils), styles
   utils/          Maths, colour cache, pooling, disposal, shader patching
   world/          Environment (stage lighting), floor, dust, contact shadows
   archive/        The retired four-element sandbox — see archive/README.md
@@ -285,11 +444,21 @@ while the sandbox is paused.
 
 There are two indicators and one controller. Which one is drawn comes from
 `ELEMENT_META[element].cast` — `CastShape.LINE` or `CastShape.ZONE` — and that is the *only* thing
-the two shapes disagree about. Arming, clamping, validating, revealing and firing are shared, and
+the two indicators disagree about. Arming, clamping, validating, revealing and firing are shared, and
 both end in the same three-argument `cast` event, because from the targeting side a far cast is a
 line cast you only care about the far end of. That is why zone targeting needed no change in
 `Ability`, `AbilityManager` or `App`: `SnareAbility` reads its centre as `pointAt(1)` and works
 outward from there.
+
+A **hold cast** folds that mechanism once. `press` stops meaning `confirm`: for an ability whose
+settings say `holdToCast`, holding the left button emits `holdstart` and *keeps the aim armed*, and
+`App` pushes the point the cursor resolves to down to the ability every frame — so it keeps tracking
+even while you hold still. Letting go emits `holdend` carrying the seconds the button was down, and
+that is the entire charge mechanic. `Esc` or a right click emits `holdcancel` instead: an aborted
+hold spends nothing, which is the deal the mechanic makes. It is aimed with a circle like the far
+casts, but what actually expresses its footprint is the marker the ability draws on the ground
+itself — the singularity's spread grows from 3.2 m to 9 m with the charge, because "how much space
+is this going to take" is not settled yet while you are holding it.
 
 ### The far-cast circle
 
@@ -471,15 +640,21 @@ frame.
   abilities' phase machine. The body is a single merged geometry of spheres and cones facing +Z,
   with two emissive eyes sharing one material; each minion clones the body material for its
   hit-flash. Movement is three lines of steering: converge on the target, push the neighbours away,
-  stop at `attackRange` and crowd. Death topples it around its feet along the blow, pauses, then
-  sinks — the opaque ground does the hiding, so no transparency is needed and no sort order is
-  risked.
+  stop at `attackRange` and crowd. `CROWD` then runs one of three mutually exclusive clocks — bite,
+  throw or slam — and the single entry point for being hit, `applyDamage`, also carries the element
+  brand and the reaction: a hit that arrives with an element stamps the body, and the next *different*
+  element to land on that stamp detonates it and clears the stamp. Death topples it around its feet
+  along the blow, pauses, then sinks — the opaque ground does the hiding, so no transparency is
+  needed and no sort order is risked.
 - **`MinionManager.js`** — the wave director, the pool, and the two verbs abilities call:
   `damageSegment(from, to, width, damage, { hitSet })` (a band along a line) and
   `damageCircle(center, radius, damage, { hitSet })` (an area). The optional `hitSet` is a Map the
   *caller* owns, keyed by minion to its spawn token — a pooled minion's next life is never mistaken
   for the body that was already hit. Omit it and the call is damage-over-time, free to hit the same
-  minion again next frame.
+  minion again next frame. Three verbs run in the other direction: `attackPlayer()` is the single
+  entry point shared by a minion's bite and the boss's slam — every point of damage funnels into
+  `Player#damage`, and the invulnerability window is judged there rather than scattered across the
+  projectiles — alongside `fireBolt()` and `bossSlam()`.
 - **`HealthBars.js`** — every bar in **one instanced mesh**. Per instance the CPU writes four
   numbers: the head anchor, the current ratio, the trailing ratio and the display alpha; the
   billboard expands in the vertex shader from the view matrix, and the bar itself is a rounded-
@@ -503,6 +678,14 @@ To make it a **far cast** instead of a line cast, add two things and nothing els
 CastShape.ZONE` in its `ELEMENT_META` entry, and a `zoneRadius` in its settings block. The circle
 indicator, the reach ring, the snap-out and the whole targeting loop come for free, and the ability
 reads its centre as `pointAt(1)`.
+
+To make it a **hold cast**, do *not* subclass `Ability` — subclass `HoldAbility`, write `holdToCast:
+true` in its settings block, and implement `onBegin` / `onHold` / `onRelease`. A hold or a channel
+shares nothing with the click casts, whose entire shape is a travelling front, so the base class owns
+only the frame the two hold casts share between themselves: they take the cursor's ground point at
+`holdstart`, they follow the cursor while the button is down, they finish when it comes up, and they
+obey the same lighting and pooling contract as every other cast. Phases are `HOLD → RELEASE → DONE`,
+and `dt = 0` freezes a charge mid-way, like every other clock in here.
 
 Everything else — pooling, the travelling front, the local frame, lights, phases, per-ability
 cooldowns, the aim reach and camera framing — is inherited or driven off `ELEMENTS`. The HUD
@@ -535,7 +718,9 @@ by `sparkForward`, which is the read that says "pressure"; the bolt's fall inste
 difference does a lot of the work of keeping the two abilities apart.
 
 The minions add one more: a **death puff** — additive dust released on death and on emerging,
-shared by the whole swarm in one ring buffer.
+shared by the whole swarm in one ring buffer. Element reactions and the bolt trails each take one
+equally shared additive system of their own: a reaction does not build an emitter, it re-tints the
+gradient to that reaction's colours — the same trick the loot and the death dust use.
 
 ### Render pipeline
 
@@ -565,9 +750,10 @@ target, blurred twice and projected onto the ground.
 ## Editor and presets
 
 Press **G** for the panel. Folders: Presets, Global, Aim indicator, Far-cast circle, Frost Lance,
-Storm Lance, Cinder Fall, Nova Beam, Voltaic Snare, Glacial Crown, Banknote Storm, Minions,
-Environment, Post processing, Camera, Character. Every folder starts collapsed — there are enough
-controls here that one open section pushes the rest off the screen.
+Storm Lance, Cinder Fall, Nova Beam, Voltaic Snare, Glacial Crown, Banknote Storm, Implosion,
+Tether, Minions, Sound, Player, Drops, Upgrades, Environment, Post processing, Camera, Character.
+Every folder starts collapsed — there are enough controls here that one open section pushes the rest
+off the screen.
 
 ![The VFX editor open on Frost Lance's crystal and ice-material controls, with the sandbox paused mid-eruption](docs/screenshots/editor.jpg)
 
@@ -592,10 +778,25 @@ controls here that one open section pushes the rest off the screen.
   the burns, sparks/updraft/smoke/debris, throw/snap/hold, and the dynamic light.
 - **Glacial Crown** — the crown's blades, the freezing sheet, the thaw and shatter, and the field.
 - **Banknote Storm** — the vortex, the notes' flutter and tumble, size and glow, and the light.
+- **Implosion** — cooldown/range/min range/zone radius, the charge (cap time), the collapse
+  (radius and damage floors and ceilings, burst time and strength), the marker (boundary thickness and
+  glow, tick count, spin speed, interior fill, colours) and the light.
+- **Tether** — cooldown/range/min range, the channel (tick interval, damage per tick, hit width), the
+  arc (core and sheath radii, jitter amount and frequency, noise shatter, anchor radius, colours) and
+  the light.
 - **Minions** — waves (cap, wave size, interval, spawn radius), movement (speed, crowd range,
   separation, bob and waddle), health and damage (health, damage taken, crits, knockback,
   stagger), death (fall/pause/sink timing, dissolve particles), looks (scale, colours, eyes) and
   the health bars (width, lift, show time, colours).
+- **Sound** — the on/off switch, the master, and faders for the cast, impact, combat and UI channels.
+  They apply live, so `impact` can be pulled down while a cast is still in the air.
+- **Player** — max health, regen rate and delay, hurt invulnerability, move speed, arena radius, walk
+  lean and stride swing, plus a **Somersault (Space)** subfolder (dash speed and time, cooldown, dodge
+  i-frames, roll time, hop height).
+- **Drops** — on/off, the gold floor and ceiling and its lifetime, the magnet and pickup radii, the
+  heal-orb chance and amount, and the colours of both drops.
+- **Upgrades** — the base cost and the price curve, the per-level gain of each of the four tracks, and
+  an **Element reactions** subfolder (on/off, memory window, resonance bonus).
 - **Presets** save to `localStorage`, and can be duplicated, deleted, exported to JSON, imported
   from JSON, or reset to the shipped defaults.
 
@@ -629,6 +830,19 @@ Knobs worth knowing about, because they reshape their ability the most:
 - `minions.health` / `minions.damageTaken` — how long a minion survives and the global difficulty
   dial; together with each ability's `hitDamage` / `tickDamage`, the whole kill cadence is tuned
   here.
+- `minions.attack.damage` and `minions.boss.slamRadius` — how hard a bite lands and how wide the
+  boss's ring is. The Bite / Ranged / Boss sub-folders carry a full set of sliders for each rhythm,
+  from the bite interval to bolt speed to the inflate tell before a slam.
+- `implosion.chargeMax` together with `implosion.radiusMax` / `damageMax` — how long the charge takes
+  and what it is worth at the top. Push `chargeMax` to four seconds and the ability stops being a tap
+  and becomes a wish.
+- `tether.tickDamage` and `tether.tickInterval` — how much the channel chews per second and how often;
+  `hitWidth` is how thick the line is, which is how easily you can drag the cursor across a whole row
+  of minions.
+- `drops.magnetRadius` and `drops.healChance` — how eagerly the gold comes to hand, and how often a
+  heal orb shows up instead.
+- `progression.costGrowth` and `progression.baseCost` — how steep the shop curve is. 1.6× is "it bites
+  by the third purchase"; drop it to 1.2 and the road is nearly flat.
 
 ---
 
@@ -655,6 +869,10 @@ Knobs worth knowing about, because they reshape their ability the most:
   geometry merged) plus **one** instanced draw for all the health bars, and one shared dissolve-
   puff system for the swarm; the dead return to the pool with zero garbage. Minion materials join
   the boot-time shader warm-up, so the first wave never hitches.
+- The bolts and the loot have pools of their own: 48 bolts (past that a throw is simply dropped) and
+  96 drops, each with one shared material. Coins and heal orbs are plain `Mesh`es rather than an
+  instanced mesh, so 96 of them on the floor really is 96 draw calls — they only exist while there is
+  something to pick up.
 - Shadow maps update exactly once per frame even though the scene is rendered several times.
 - `renderer.compileAsync()` runs during boot so the first cast never stutters on shader compile.
 - Pixel ratio is capped at 1.75; the depth and distortion buffers are half resolution.
@@ -665,8 +883,8 @@ draw calls and ~480 live particles, and arming its circle costs two. Four concur
 the pool's ceiling, whichever slots they came from — peaks at ~186 draw calls and five of the six
 dynamic lights. A full floor of 24 minions adds ~49 more.
 
-Live counters (FPS, live particles, instances, draw calls, minions, kills) are in the top-right of
-the HUD.
+Live counters (FPS, live particles, instances, draw calls, minions, kills, wave and gold) are in the
+top-right of the HUD.
 
 ---
 
