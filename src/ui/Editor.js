@@ -1828,6 +1828,42 @@ export class Editor {
     R(floor, e, 'floorRoughness', 0.05, 1, 0.01, '粗糙度');
     R(floor, e, 'floorSheen', 0, 1, 0.01, '光泽');
     R(floor, e, 'floorPool', 0, 1, 0.01, '光池');
+
+    const ocean = folder.addFolder('海洋');
+    const o = settings.ocean;
+    ocean.add(o, 'enabled').name('启用海洋');
+    // The 24.5 lower bound keeps the walkable arena (groundRadius 24) dry —
+    // below that the tideline floods the play space itself.
+    R(ocean, o, 'innerRadius', 24.5, 80, 0.1, '岸线半径（米）');
+    R(ocean, o, 'outerRadius', 60, 300, 1, '远海半径（米）');
+    R(ocean, o, 'level', 0, 1.2, 0.01, '水位');
+    R(ocean, o, 'waveHeight', 0, 0.8, 0.01, '浪高');
+    R(ocean, o, 'waveSpeed', 0, 3, 0.01, '浪速');
+    R(ocean, o, 'waveScale', 0.02, 0.5, 0.01, '浪尺度');
+    R(ocean, o, 'foamAmount', 0, 1.5, 0.01, '泡沫量');
+    R(ocean, o, 'foamWidth', 0.5, 6, 0.1, '泡沫带宽');
+    R(ocean, o, 'seaRoughness', 0, 1, 0.01, '海面粗糙度');
+    ocean.addColor(o, 'seaColor').name('海色');
+    ocean.addColor(o, 'deepColor').name('深海色');
+    ocean.addColor(o, 'foamColor').name('泡沫色');
+
+    const life = folder.addFolder('海滩生物');
+    const b = settings.beachLife;
+    life.add(b, 'enabled').name('启用生物');
+    // Count sliders cap at the InstancedMesh hard limits; the meshes clamp
+    // their drawn count to whatever the slider says.
+    R(life, b, 'crabs', 0, 16, 1, '螃蟹数量');
+    R(life, b, 'crabSpeed', 0, 2, 0.01, '蟹速');
+    R(life, b, 'crabInner', 20, 30, 0.1, '蟹内圈');
+    R(life, b, 'crabOuter', 20, 32, 0.1, '蟹外圈');
+    R(life, b, 'crabScale', 0.4, 1.6, 0.01, '蟹体型');
+    R(life, b, 'crabBob', 0, 2, 0.01, '蟹弹跳');
+    R(life, b, 'gulls', 0, 10, 1, '海鸥数量');
+    R(life, b, 'gullSpeed', 0.05, 1, 0.01, '鸥速');
+    R(life, b, 'gullRadius', 10, 40, 0.5, '鸥盘旋半径');
+    R(life, b, 'gullHeight', 4, 20, 0.1, '鸥高度');
+    R(life, b, 'gullFlap', 0.5, 6, 0.01, '振翅频率');
+    R(life, b, 'gullScale', 0.4, 1.6, 0.01, '鸥体型');
   }
 
   _buildPost() {

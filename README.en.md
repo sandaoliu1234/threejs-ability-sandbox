@@ -104,7 +104,7 @@ whole cage is that same ribbon strip threaded along four different parametric pa
 targeting circle, the rime, the burns and the molten cracks are signed-distance and noise shaders,
 and the mist, sparks, chips and glitter are GPU particles.
 
-**Every parameter is a live slider** — 1333 of them — and they stay live while the simulation is
+**Every parameter is a live slider** — 1359 of them — and they stay live while the simulation is
 paused. That is the point of the project: freeze a frame mid-eruption, mid-strike or mid-burn with
 **P**, then reshape the silhouette, the palette and the timing against a still image.
 
@@ -365,7 +365,10 @@ Crown — throw `cast3`, and the other three throw `cast1`. The clip is a one-sh
 the looping idle, with `character.castBlendIn` / `castBlendOut` as the two edges of that overlap.
 
 The HDR is loaded as image-based lighting and as the reflection source for the ice — it is never
-shown as a visible sky. The stage keeps its flat dark backdrop.
+shown as a visible sky. The shipped dim stage is a flat dark backdrop; the other five scene presets
+(dusk beach, noon desert, polar tundra, volcanic caldera, void grid) are also built without a single
+skybox texture — lights, fog and procedural ground patterns carry them, and the beach can layer a
+shader ocean ring and shoreline life on top.
 
 ---
 
@@ -847,6 +850,14 @@ off the screen.
   an **Element reactions** subfolder (on/off, memory window, resonance bonus) holding **Named pairs**
   (a bonus per hand-written pair) and the **Family matrix** (a bonus per family pair, plus four
   read-only rows naming the members).
+- **Environment** — rim light, backdrop and fog, dust motes, the stage floor (five procedural
+  patterns: stone/sand/snow/ash/grid), and a **Scene backdrop** dropdown: six complete looks (dim
+  stage, dusk beach, noon desert, polar tundra, volcanic caldera, void grid) that swap lighting, fog,
+  floor and post grading together, synced with the HUD's scene pill. Two subfolders hang under it:
+  **Ocean** (enable, inner/outer radii, level, wave height/speed/scale, foam amount and band, sea
+  roughness, sea/deep/foam colours — the shoreline is drawn by the shader, so dragging the radii
+  takes effect immediately with no geometry rebuild) and **Beach life** (enable; crabs: count, speed,
+  tide-line radii, size, scuttle bob; gulls: count, speed, orbit radius, altitude, flap rate, size).
 - **Presets** save to `localStorage`, and can be duplicated, deleted, exported to JSON, imported
   from JSON, or reset to the shipped defaults.
 
@@ -923,6 +934,11 @@ Knobs worth knowing about, because they reshape their ability the most:
   96 drops, each with one shared material. Coins and heal orbs are plain `Mesh`es rather than an
   instanced mesh, so 96 of them on the floor really is 96 draw calls — they only exist while there is
   something to pick up.
+- The ocean is **one** draw call: a single ring mesh for the whole water sheet, with the shoreline
+  drawn by the shader from the radii (vertices outside the live band sink into the ground), so
+  dragging the inner/outer radius never rebuilds geometry; the crabs and the gulls are **one**
+  instanced draw each, every pose derived in the vertex shader from a seed — the CPU writes a few
+  uniforms per frame and nothing else.
 - Shadow maps update exactly once per frame even though the scene is rendered several times.
 - `renderer.compileAsync()` runs during boot so the first cast never stutters on shader compile.
 - Pixel ratio is capped at 1.75; the depth and distortion buffers are half resolution.

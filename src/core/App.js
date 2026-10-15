@@ -8,6 +8,8 @@ import { frame } from './FrameUniforms.js';
 import { Environment } from '../world/Environment.js';
 import { Ground } from '../world/Ground.js';
 import { DustMotes } from '../world/DustMotes.js';
+import { Ocean } from '../world/Ocean.js';
+import { Critters } from '../world/Critters.js';
 import { ContactShadows } from '../world/ContactShadows.js';
 
 import { AssetLoader } from '../loaders/AssetLoader.js';
@@ -84,9 +86,14 @@ export class App {
     /* ---- world ---- */
     this.ground = new Ground(this.environment);
     this.dust = new DustMotes();
+    this.ocean = new Ocean();
+    this.critters = new Critters();
     this.contactShadows = new ContactShadows(this.renderer, { size: 2.6, height: 2.4, blur: 2.0 });
 
-    this.scene.add(this.ground.mesh, this.dust.points, this.contactShadows.group);
+    // The ocean renders behind the ground in the same band, so it goes after
+    // ground in the scene list; renderOrder (-2 vs ground's default) does the
+    // real work.
+    this.scene.add(this.ground.mesh, this.ocean.mesh, this.critters.group, this.dust.points, this.contactShadows.group);
     this.dust.setPixelRatio(this.renderer.gl.getPixelRatio());
 
     /* ---- shared VFX services ---- */
@@ -710,6 +717,8 @@ export class App {
     }
 
     this.ground.update(this.elapsed);
+    this.ocean.update(this.elapsed);
+    this.critters.update(this.elapsed);
     this.dust.update(this.elapsed, this.character.position);
 
     this.abilities.update(dt);
@@ -792,6 +801,8 @@ export class App {
     this.lights.dispose();
     this.character.dispose();
     this.ground.dispose();
+    this.ocean.dispose();
+    this.critters.dispose();
     this.dust.dispose();
     this.contactShadows.dispose();
     this.post.dispose();

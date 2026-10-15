@@ -2299,6 +2299,58 @@ export const settings = {
   },
 
   /* ------------------------------------------------------------------ */
+  /* Ocean — a live annulus of water ringing the arena.                  */
+  /* ------------------------------------------------------------------ */
+  ocean: {
+    // Off by default: the stage's identity is a floor dissolving into fog, and
+    // the first beach calibration leaned on that haze to hide the plane edge.
+    // A background preset turns it on; it stays independent of `background`
+    // afterwards, so a night sea is a legal combination.
+    enabled: false,
+    // Metres where the water meets the sand. Must sit outside the play radius
+    // (groundRadius 24) but inside the sun-shadow extent (26) so crabs walking
+    // the tideline keep a shadow.
+    innerRadius: 27.0,
+    outerRadius: 190.0,
+    // Water sits above the floor so wave troughs can never dip below the sand
+    // and poke holes; the inner rim sinks underground to hide the step.
+    level: 0.34,
+    waveHeight: 0.2,
+    waveSpeed: 0.9,
+    // Noise frequency in cycles per metre — smaller = longer swells.
+    waveScale: 0.13,
+    foamAmount: 0.6,
+    foamWidth: 2.2,
+    // Low roughness is what turns the low sun into a glitter path.
+    seaRoughness: 0.22,
+    seaColor: '#2f6d84',
+    deepColor: '#133d57',
+    foamColor: '#f2e3c4'
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Beach life — background creatures on and above the tideline.        */
+  /* ------------------------------------------------------------------ */
+  beachLife: {
+    enabled: false,
+    // Crabs scuttle sideways along the tideline, half inside the shadow
+    // camera's 26 m extent so their little shadows track them.
+    crabs: 7,
+    crabSpeed: 0.55,
+    crabInner: 24.5,
+    crabOuter: 27.5,
+    crabScale: 0.85,
+    crabBob: 1.0,
+    // Gulls wheel high above the water, banking in wide circles.
+    gulls: 5,
+    gullSpeed: 0.32,
+    gullRadius: 26.0,
+    gullHeight: 11.0,
+    gullFlap: 2.4,
+    gullScale: 1.0
+  },
+
+  /* ------------------------------------------------------------------ */
   /* Post processing                                                     */
   /* ------------------------------------------------------------------ */
   post: {
@@ -2561,6 +2613,10 @@ export const BACKGROUNDS = {
       dustAmount: 0.85,
       contactShadow: 0.55
     },
+    // The stage owns the default look, so it explicitly dissolves the sea and
+    // its creatures rather than inheriting them from whatever was live before.
+    ocean: { enabled: false },
+    beachLife: { enabled: false },
     post: { exposure: 1.05, temperature: -0.03, saturation: 1.08, vignette: 0.52, bloomStrength: 0.03 }
   },
 
@@ -2621,6 +2677,10 @@ export const BACKGROUNDS = {
       dustAmount: 0.5,
       contactShadow: 0.34
     },
+    // The dusk tide: the sea ring lights up from the low sun, crabs work the
+    // wet sand at the tideline and gulls wheel over the swell.
+    ocean: { enabled: true, seaColor: '#3d7a8e', deepColor: '#1a4a63', foamColor: '#f6e7c8' },
+    beachLife: { enabled: true },
     post: { exposure: 1.12, temperature: 0.14, saturation: 1.16, vignette: 0.34, bloomStrength: 0.32 }
   },
 
@@ -2674,6 +2734,8 @@ export const BACKGROUNDS = {
       dustAmount: 1.6,
       contactShadow: 0.28
     },
+    ocean: { enabled: false },
+    beachLife: { enabled: false },
     post: { exposure: 1.0, temperature: 0.2, saturation: 1.1, vignette: 0.42, bloomStrength: 0.24 }
   },
 
@@ -2728,6 +2790,8 @@ export const BACKGROUNDS = {
       dustAmount: 1.2,
       contactShadow: 0.4
     },
+    ocean: { enabled: false },
+    beachLife: { enabled: false },
     post: { exposure: 1.08, temperature: -0.16, saturation: 0.92, vignette: 0.4, bloomStrength: 0.3 }
   },
 
@@ -2767,6 +2831,8 @@ export const BACKGROUNDS = {
       dustAmount: 2.1,
       contactShadow: 0.62
     },
+    ocean: { enabled: false },
+    beachLife: { enabled: false },
     post: { exposure: 1.1, temperature: 0.16, saturation: 1.24, vignette: 0.62, bloomStrength: 0.5 }
   },
 
@@ -2808,6 +2874,8 @@ export const BACKGROUNDS = {
       dustAmount: 0.7,
       contactShadow: 0.5
     },
+    ocean: { enabled: false },
+    beachLife: { enabled: false },
     post: { exposure: 1.02, temperature: -0.12, saturation: 1.12, vignette: 0.58, bloomStrength: 0.42 }
   }
 };
