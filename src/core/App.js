@@ -35,7 +35,7 @@ import { sfx } from '../audio/Sound.js';
 import { HUD, LoadingScreen } from '../ui/HUD.js';
 import { Editor } from '../ui/Editor.js';
 
-import { settings, ELEMENTS } from '../config/settings.js';
+import { settings, ELEMENTS, BACKGROUNDS, applyBackground } from '../config/settings.js';
 
 const HDR_URL = './hdri/spruit_sunrise.hdr';
 
@@ -233,6 +233,7 @@ export class App {
     this.hud.onToggleMinions = () => this._handleAction('toggleMinions');
     this.hud.onRestart = () => this._restartRun();
     this.hud.onBuy = (track) => this.player.buy(track);
+    this.hud.onBackground = (name) => this.setBackground(name);
     this.hud.bindPlayer(this.player);
     this.hud.setMinionsEnabled(settings.minions.enabled);
 
@@ -297,6 +298,29 @@ export class App {
       default:
         break;
     }
+  }
+
+  /**
+   * Swap the whole look of the stage: sun, fill, rim, fog, floor, dust and the
+   * grade that ties them together.
+   *
+   * One dropdown therefore moves a few dozen values. `applyBackground` owns
+   * that merge (see `settings.js`) — the app only has to report the outcome,
+   * and the editor's own panel is refreshed here because it holds live bindings
+   * to every one of those values and would otherwise show the previous scene's
+   * numbers.
+   */
+  setBackground(name) {
+    const applied = applyBackground(name);
+    if (!applied) {
+      // Unknown name: the scene is left alone rather than half-switched.
+      this.hud.showToast('未知场景');
+      return false;
+    }
+    this.hud.setBackground(applied);
+    this.editor?.refresh();
+    this.hud.showToast(`场景已切换 —— ${BACKGROUNDS[applied]?.label ?? applied}`);
+    return true;
   }
 
   /**
@@ -717,6 +741,11 @@ export class App {
       this.hud.setCooldown(element, this.cooldowns.get(element) ?? 0, settings[element].cooldown);
     }
     this.hud.setArmed(this.aim.isArmed);
+    // A background can arrive from the editor's own dropdown or from a preset
+    // load, neither of which goes through the HUD — so the select is re-pointed
+    // every frame rather than only when this app sets it. `setBackground` on
+    // the HUD is a no-op unless the value actually changed.
+    this.hud.setBackground(settings.environment.background);
     this.hud.setPlayerHp(
       this.player.hp / this.player.maxHp,
       this.player.hp,

@@ -333,6 +333,90 @@ body {
   box-shadow: 0 0 10px 1px rgba(126, 226, 138, 0.7);
 }
 
+/*
+ * The scene picker. Same chip as the minion toggle so the bar reads as one row
+ * of controls, but a native <select> rather than a button: the browser owns the
+ * menu, which means keyboard access, the platform's own popup and the correct
+ * behaviour on touch come for free.
+ *
+ * `appearance: none` strips the OS chrome so the control can wear the HUD's own
+ * surface; the caret is then drawn by the wrapper's ::after, because a select
+ * cannot carry a pseudo-element of its own.
+ */
+.scene-picker {
+  position: relative;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--ui-shadow);
+  color: var(--ui-text-dim);
+  font: 11px/1 var(--ui-font);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  user-select: none;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.scene-picker:hover {
+  background: rgba(20, 28, 38, 0.7);
+}
+
+.scene-picker__label {
+  pointer-events: none;
+}
+
+.scene-picker__select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  /* Room on the right for the caret drawn below. */
+  padding: 0 14px 0 0;
+  background: transparent;
+  color: var(--ui-text);
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+/* The popup itself is painted by the OS, so the options need their own colour
+   or they inherit a transparent background and become unreadable on some
+   platforms. */
+.scene-picker__select option {
+  background: #0e141d;
+  color: var(--ui-text);
+}
+
+.scene-picker__select:focus-visible {
+  outline: none;
+}
+
+.scene-picker:focus-within {
+  border-color: var(--ui-accent);
+  box-shadow: var(--ui-shadow), 0 0 18px -6px var(--ui-accent);
+}
+
+.scene-picker::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .hud__panel {
   position: absolute;
   padding: 12px 14px;
@@ -1370,9 +1454,12 @@ body {
    inset and a 10px gutter, so the slots, the hp bar and the dash pip keep the
    band that is actually looked at. Declared after the base rules for both cards
    so it wins the cascade.
-   - help: 1074px of bar runs into the 260px help card below ~1660px.
-   - contact: below ~1060px the 860px bar reaches the portrait in the corner. */
-@media (max-width: 1660px) {
+   - help: 1159px of bar (nine slots + minion toggle + scene picker) runs into
+     the 260px help card below ~1724px: (V - 1159) / 2 < 282. Threshold holds
+     16px of margin for font-metric drift.
+   - contact: below ~1130px the 941px bar reaches the portrait in the corner:
+     V / 2 + 941 / 2 > V - 88 past V = 1117. */
+@media (max-width: 1740px) {
   .hud__help {
     bottom: 118px;
   }
@@ -1389,7 +1476,7 @@ body {
   }
 }
 
-@media (max-width: 1060px) {
+@media (max-width: 1130px) {
   .hud__contact {
     bottom: 118px;
   }

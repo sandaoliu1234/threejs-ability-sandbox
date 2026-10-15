@@ -1,4 +1,4 @@
-import { settings, ELEMENTS, ELEMENT_META } from '../config/settings.js';
+import { settings, ELEMENTS, ELEMENT_META, BACKGROUNDS, backgroundNames } from '../config/settings.js';
 import { ELEMENT_SIGILS } from './glyphs.js';
 import { CONTACT_MARKUP, ContactCard } from './contact.js';
 import { sfx } from '../audio/Sound.js';
@@ -29,6 +29,9 @@ export class HUD {
     this.onRestart = null;
     this.onBuy = null; // (track) — set by App, priced by Player
     this.onToggleSound = null;
+    this.onBackground = null; // (name) — set by App, applied by settings
+    /** Last background pushed to the select, so the frame loop can skip writes. */
+    this._backgroundShown = null;
     this._toastTimer = 0;
     this._statsAccumulator = 0;
     this._frames = 0;
@@ -90,6 +93,15 @@ export class HUD {
           <span class="minion-toggle__label">小兵</span>
           <span class="minion-toggle__state" data-minion-state>开</span>
         </button>
+
+        <label class="scene-picker" title="选择玩家角色所处的场景">
+          <span class="scene-picker__label">场景</span>
+          <select class="scene-picker__select" data-scene-select>
+            ${backgroundNames()
+              .map((name) => `<option value="${name}">${BACKGROUNDS[name].label}</option>`)
+              .join('')}
+          </select>
+        </label>
       </div>
 
       <div class="hud__player" data-player>
@@ -137,6 +149,16 @@ export class HUD {
       event.stopPropagation();
       sfx.ui();
       this.onToggleMinions?.();
+    });
+
+    // The scene picker. `change` rather than `pointerdown`, because a native
+    // select owns its own open/close gesture and only reports a decision once
+    // the menu closes — reacting to the click would fire on the way in.
+    this.sceneSelect = root.querySelector('[data-scene-select]');
+    this.sceneSelect.addEventListener('pointerdown', (event) => event.stopPropagation());
+    this.sceneSelect.addEventListener('change', () => {
+      sfx.ui(1.1);
+      this.onBackground?.(this.sceneSelect.value);
     });
 
     this.stats = {
@@ -245,6 +267,20 @@ export class HUD {
   setMinionsEnabled(enabled) {
     this.minionToggle.classList.toggle('is-on', enabled);
     this.minionState.textContent = enabled ? '开' : '关';
+  }
+
+  /**
+   * Point the scene picker at whatever background is actually in force.
+   *
+   * The frame loop calls this rather than the change handler, because a
+   * background can also arrive from the editor's own dropdown or from a preset
+   * load — neither of which goes through this element. Writing the value back
+   * here is what keeps the two menus from disagreeing.
+   */
+  setBackground(name) {
+    if (name === this._backgroundShown) return;
+    this._backgroundShown = name;
+    if (this.sceneSelect.value !== name) this.sceneSelect.value = name;
   }
 
   /* ------------------------------------------------------------------ */

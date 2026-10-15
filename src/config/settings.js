@@ -2244,6 +2244,16 @@ export const settings = {
   /* Environment & lighting                                              */
   /* ------------------------------------------------------------------ */
   environment: {
+    // Which entry of `BACKGROUNDS` is in force. Written only by
+    // `applyBackground`, because the name on its own is not a look — the values
+    // below are, and they have to move together.
+    background: 'stage',
+    // Which procedural pattern the ground shader draws. Deliberately separate
+    // from `background`: a sand floor under a night sky is a legitimate
+    // combination, and pinning the two together would forbid it. One of
+    // `FLOOR_STYLES`.
+    floorStyle: 'stone',
+
     // A dark cinematic stage: one cool key, a colder rim from behind, and very
     // little fill, so the ice is the brightest thing on screen and the fog can
     // swallow the floor into the backdrop.
@@ -2473,6 +2483,335 @@ export function zoneRadiusOf(element) {
   return castShapeOf(element) === CastShape.ZONE ? (settings[element]?.zoneRadius ?? 0) : 0;
 }
 
+/**
+ * The procedural ground patterns the floor shader can draw, in menu order.
+ *
+ * `Ground` switches on the *index* in this array, so the order is load-bearing:
+ * appending is safe, reordering silently repaints every saved preset. Each entry
+ * is only a name — the pattern itself lives in the shader, because a floor
+ * pattern that costs a texture download would break the "no asset, no rebuild"
+ * rule the rest of the world follows.
+ */
+export const FLOOR_STYLES = ['stone', 'sand', 'snow', 'ash', 'grid'];
+
+/**
+ * Display copy for each floor style, so the editor's menu can be Chinese
+ * without a second list of names to keep in sync.
+ *
+ * Keyed by style name rather than by index on purpose: `FLOOR_STYLES` order is
+ * load-bearing for the shader, but a label is only ever looked up by name, so
+ * reordering the array cannot mislabel a menu entry.
+ */
+export const FLOOR_STYLE_META = {
+  stone: { label: '石板' },
+  sand: { label: '沙地' },
+  snow: { label: '积雪' },
+  ash: { label: '焦土' },
+  grid: { label: '网格' }
+};
+
+/**
+ * Background presets: a whole look, not a sky colour.
+ *
+ * Each entry is a partial `settings` patch applied by `applyBackground`. They
+ * are deliberately *whole looks* — sun, fill, rim, fog, floor, dust and the
+ * grade that ties them together — because a bright beach under the stage's
+ * cool cinematic grade reads as a bug, not as a beach. Switching one therefore
+ * overwrites those fields; anything a block does not mention (shadow bias,
+ * post-processing keys it has no opinion about) is left exactly as the user
+ * tuned it, since `applySettings` merges rather than replaces.
+ *
+ * `stage` reproduces the shipped defaults value for value, so switching away
+ * and back is lossless.
+ */
+export const BACKGROUNDS = {
+  stage: {
+    label: '幽暗舞台',
+    hint: '默认：冷色主光 + 暗场，让冰晶成为画面最亮的东西',
+    environment: {
+      sunIntensity: 2.6,
+      sunColor: '#e8f3ff',
+      sunAzimuth: 2.95,
+      sunElevation: 0.6,
+      ambientIntensity: 0.14,
+      ambientColor: '#8ea8d8',
+      hemiIntensity: 0.36,
+      hemiSkyColor: '#bdd7ff',
+      hemiGroundColor: '#3a4552',
+      rimIntensity: 1.1,
+      rimColor: '#9ec2ff',
+      rimAzimuth: 5.45,
+      rimElevation: 0.35,
+      envIntensity: 0.32,
+      backgroundColor: '#121820',
+      fogEnabled: true,
+      fogColor: '#121820',
+      fogNear: 26,
+      fogFar: 135,
+      floorStyle: 'stone',
+      floorColor: '#191f27',
+      floorTint: '#232b35',
+      floorRoughness: 0.88,
+      floorSheen: 0.34,
+      floorPool: 0.8,
+      floorTexture: false,
+      floorTextureScale: 12.0,
+      floorNormalScale: 0.85,
+      floorTexTint: 0.4,
+      dustAmount: 0.85,
+      contactShadow: 0.55
+    },
+    post: { exposure: 1.05, temperature: -0.03, saturation: 1.08, vignette: 0.52, bloomStrength: 0.03 }
+  },
+
+  beach: {
+    label: '黄昏海滩',
+    hint: '低角度暖阳 + 海雾把远处的地面吃掉，沙面只留一层薄光',
+    environment: {
+      // Sun sits low and warm, straight down the -z axis so the character's
+      // shadow rakes toward the camera and the sea horizon stays bright.
+      //
+      // The fill is held deliberately under the key. The first draft had it
+      // carrying the shot -- hemi 1.5 and env 1.15 against a key that only
+      // lands sin(0.22) = 0.22 of itself on the ground -- and because
+      // hemiSkyColor is a blue, that blue fill over a warm floor is exactly how
+      // sand turns to cream. Measured, 15.3% of the ground band sat above 220
+      // luma. Raising roughness could only pull that to 10.5% before it stopped
+      // responding, which is what ruled out specular and named the fill;
+      // lowering the fill takes it to zero, and the sand gains 16 points of
+      // r-minus-b doing it.
+      sunIntensity: 4.4,
+      sunColor: '#ffd9a8',
+      sunAzimuth: 1.62,
+      sunElevation: 0.22,
+      ambientIntensity: 0.4,
+      ambientColor: '#8fb6d8',
+      hemiIntensity: 1.05,
+      hemiSkyColor: '#bfe2ff',
+      hemiGroundColor: '#c8a878',
+      // No rim light: an outdoor scene is lit by the sky, and a blue edge on a
+      // sunlit beach reads as a studio rig poking through.
+      rimIntensity: 0.25,
+      rimColor: '#ffe6c4',
+      rimAzimuth: 5.45,
+      rimElevation: 0.35,
+      envIntensity: 0.7,
+      backgroundColor: '#8ec4e8',
+      // Dense and near: the sea haze is what sells the horizon, and it also
+      // hides the 400 m plane's edge without needing an ocean mesh.
+      fogEnabled: true,
+      fogColor: '#cfe4f2',
+      fogNear: 14,
+      fogFar: 96,
+      floorStyle: 'sand',
+      floorColor: '#c9ab7e',
+      floorTint: '#e3cda3',
+      // Wet sand, but not a mirror. 0.52 was the first guess and it produced a
+      // blown white column down the middle of the frame: at a sun elevation of
+      // 0.22 rad the highlight path is very long, so a glossy floor smears it
+      // across the whole view. Measured, clipping went 2.66% -> 0 between 0.52
+      // and 0.82 while the sheen stayed low enough to keep the crest readable.
+      floorRoughness: 0.78,
+      floorSheen: 0.45,
+      floorPool: 0.34,
+      floorTexture: false,
+      floorTextureScale: 12.0,
+      floorNormalScale: 0.85,
+      floorTexTint: 0.4,
+      dustAmount: 0.5,
+      contactShadow: 0.34
+    },
+    post: { exposure: 1.12, temperature: 0.14, saturation: 1.16, vignette: 0.34, bloomStrength: 0.32 }
+  },
+
+  desert: {
+    label: '正午沙漠',
+    hint: '高对比顶光 + 干热空气，热浪扭曲在远处最明显',
+    environment: {
+      // Near-vertical key: at noon the shadow is a puddle under the feet, which
+      // is exactly what makes the desert read as hot rather than just bright.
+      //
+      // Calibrated against the frame buffer, not by eye. A near-vertical sun
+      // delivers almost all of its energy to the floor -- the ground receives
+      // sin(elevation) of the key, which here is 0.96, against 0.22 for the
+      // beach's low sun. The first draft paired that geometry with the largest
+      // intensity in the table, so the floor ran about 5.6x the beach's, and
+      // once past the ACES shoulder the sand clipped to flat white over 44% of
+      // the frame with saturation collapsing to 12. Zeroing the key alone
+      // proved the mechanism: clipping fell to 0.36% and saturation tripled.
+      // Halving it had barely moved the number, which is how a shoulder behaves.
+      sunIntensity: 3.0,
+      sunColor: '#fff3d6',
+      sunAzimuth: 2.1,
+      sunElevation: 1.28,
+      ambientIntensity: 0.3,
+      ambientColor: '#d8c49a',
+      hemiIntensity: 0.7,
+      hemiSkyColor: '#cfe6ff',
+      hemiGroundColor: '#d8b47a',
+      rimIntensity: 0.35,
+      rimColor: '#ffe9c0',
+      rimAzimuth: 5.45,
+      rimElevation: 0.35,
+      envIntensity: 0.35,
+      backgroundColor: '#dfe9f2',
+      // Almost no fog: the whole point of the desert is the hard horizon line,
+      // and haze would erase it. What little there is sits far out.
+      fogEnabled: true,
+      fogColor: '#e8e2cf',
+      fogNear: 60,
+      fogFar: 210,
+      floorStyle: 'sand',
+      floorColor: '#d8b57e',
+      floorTint: '#f0dcb4',
+      floorRoughness: 0.92,
+      floorSheen: 0.28,
+      floorPool: 0.2,
+      floorTexture: false,
+      floorTextureScale: 12.0,
+      floorNormalScale: 0.85,
+      floorTexTint: 0.4,
+      dustAmount: 1.6,
+      contactShadow: 0.28
+    },
+    post: { exposure: 1.0, temperature: 0.2, saturation: 1.1, vignette: 0.42, bloomStrength: 0.24 }
+  },
+
+  tundra: {
+    label: '极地雪原',
+    hint: '冷白低反差，雪面颗粒会随镜头移动闪一下',
+    environment: {
+      // Overcast and high: a snowfield is lit by the sky dome, not the sun, so
+      // the key is weak and the hemisphere light does the work.
+      //
+      // Calibrated against the frame buffer. This one failed for the opposite
+      // reason to the desert: zeroing the key barely moved clipping (45.5% to
+      // 42.9%), so the sun was never the problem. The three fill terms were,
+      // but only jointly -- each alone leaves the frame almost untouched (env
+      // 14.2%, hemi 41.9%, amb 45.0%) while all three at once take it to zero.
+      // That is a threshold parked on the ACES shoulder, and it is why an
+      // earlier attempt to halve every light moved the number by three points
+      // and looked like proof the lights were innocent. So the fill is scaled
+      // down as a set, and the key with it, keeping the key-to-fill ratio that
+      // makes snow read as overcast rather than as a floodlit sheet.
+      sunIntensity: 0.9,
+      sunColor: '#e4f0ff',
+      sunAzimuth: 2.6,
+      sunElevation: 0.9,
+      ambientIntensity: 0.3,
+      ambientColor: '#b9cfe8',
+      hemiIntensity: 0.95,
+      hemiSkyColor: '#dceaff',
+      hemiGroundColor: '#9fb6cc',
+      rimIntensity: 0.8,
+      rimColor: '#cfe4ff',
+      rimAzimuth: 5.45,
+      rimElevation: 0.35,
+      envIntensity: 0.35,
+      backgroundColor: '#c3d6e6',
+      fogEnabled: true,
+      fogColor: '#dae7f2',
+      fogNear: 22,
+      fogFar: 150,
+      floorStyle: 'snow',
+      floorColor: '#cfdcea',
+      floorTint: '#f2f8ff',
+      // Snow scatters: bright but not glossy, so roughness stays high and the
+      // sheen knob only adds the faintest crust.
+      floorRoughness: 0.78,
+      floorSheen: 0.4,
+      floorPool: 0.26,
+      floorTexture: false,
+      floorTextureScale: 12.0,
+      floorNormalScale: 0.85,
+      floorTexTint: 0.4,
+      dustAmount: 1.2,
+      contactShadow: 0.4
+    },
+    post: { exposure: 1.08, temperature: -0.16, saturation: 0.92, vignette: 0.4, bloomStrength: 0.3 }
+  },
+
+  caldera: {
+    label: '火山焦土',
+    hint: '暗红天光 + 裂缝透出余烬，浮尘换成飞灰',
+    environment: {
+      sunIntensity: 2.2,
+      sunColor: '#ff9a5c',
+      sunAzimuth: 2.75,
+      sunElevation: 0.42,
+      ambientIntensity: 0.3,
+      ambientColor: '#a05a44',
+      hemiIntensity: 0.5,
+      hemiSkyColor: '#6b3a34',
+      hemiGroundColor: '#2a1a18',
+      rimIntensity: 1.5,
+      rimColor: '#ff7a3c',
+      rimAzimuth: 5.45,
+      rimElevation: 0.28,
+      envIntensity: 0.5,
+      backgroundColor: '#2a1512',
+      fogEnabled: true,
+      fogColor: '#3a1c16',
+      fogNear: 18,
+      fogFar: 120,
+      floorStyle: 'ash',
+      floorColor: '#2b2320',
+      floorTint: '#ff6a2a',
+      floorRoughness: 0.94,
+      floorSheen: 0.2,
+      floorPool: 0.62,
+      floorTexture: false,
+      floorTextureScale: 12.0,
+      floorNormalScale: 0.85,
+      floorTexTint: 0.4,
+      dustAmount: 2.1,
+      contactShadow: 0.62
+    },
+    post: { exposure: 1.1, temperature: 0.16, saturation: 1.24, vignette: 0.62, bloomStrength: 0.5 }
+  },
+
+  void: {
+    label: '虚空网格',
+    hint: '没有地平线，只有一张无限延伸的发光网格',
+    environment: {
+      sunIntensity: 1.2,
+      sunColor: '#c9d8ff',
+      sunAzimuth: 2.95,
+      sunElevation: 0.75,
+      ambientIntensity: 0.22,
+      ambientColor: '#5f6f9c',
+      hemiIntensity: 0.3,
+      hemiSkyColor: '#4a5a86',
+      hemiGroundColor: '#161c2c',
+      rimIntensity: 1.4,
+      rimColor: '#8fa8ff',
+      rimAzimuth: 5.45,
+      rimElevation: 0.35,
+      envIntensity: 0.42,
+      backgroundColor: '#04060c',
+      // Fog is the entire horizon here: the floor never visibly ends, it just
+      // runs out of light.
+      fogEnabled: true,
+      fogColor: '#04060c',
+      fogNear: 16,
+      fogFar: 110,
+      floorStyle: 'grid',
+      floorColor: '#080c18',
+      floorTint: '#3f7fd8',
+      floorRoughness: 0.7,
+      floorSheen: 0.5,
+      floorPool: 0.7,
+      floorTexture: false,
+      floorTextureScale: 12.0,
+      floorNormalScale: 0.85,
+      floorTexTint: 0.4,
+      dustAmount: 0.7,
+      contactShadow: 0.5
+    },
+    post: { exposure: 1.02, temperature: -0.12, saturation: 1.12, vignette: 0.58, bloomStrength: 0.42 }
+  }
+};
+
 /** Immutable snapshot used by "Reset to defaults" and the preset system. */
 export const DEFAULT_SETTINGS = structuredClone(settings);
 
@@ -2492,9 +2831,34 @@ export function applySettings(patch, target = settings) {
   return target;
 }
 
-/** Restore every value to the shipped defaults (in place). */
-export function resetSettings() {
-  applySettings(structuredClone(DEFAULT_SETTINGS));
+/**
+ * Switch the scene to one of `BACKGROUNDS`, in place.
+ *
+ * The patch is merged rather than assigned, so a background only owns the
+ * fields it names: shadow bias, contact-shadow keys and every post-processing
+ * knob it has no opinion about keep whatever the user set. `applySettings`
+ * preserves object identity, so the live bindings held by the lights, the fog
+ * and the ground shader all stay valid — this is a value change, never a
+ * rebuild.
+ *
+ * Returns the applied name, or null if the name is unknown (the scene is then
+ * left untouched rather than half-switched).
+ */
+export function applyBackground(name) {
+  const preset = BACKGROUNDS[name];
+  if (!preset) return null;
+
+  // `label`/`hint` are menu copy, not settings; strip them so a stray key can
+  // never end up in the tree.
+  const { label: _label, hint: _hint, ...patch } = preset;
+  applySettings(structuredClone(patch));
+  settings.environment.background = name;
+  return name;
+}
+
+/** Background names in declaration order — the menu's order, not alphabetical. */
+export function backgroundNames() {
+  return Object.keys(BACKGROUNDS);
 }
 
 /** Serialisable clone of the current state. */

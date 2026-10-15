@@ -1,5 +1,13 @@
 import GUI from 'lil-gui';
-import { settings, CAST_ANIMATIONS } from '../config/settings.js';
+import {
+  settings,
+  CAST_ANIMATIONS,
+  BACKGROUNDS,
+  FLOOR_STYLES,
+  FLOOR_STYLE_META,
+  applyBackground,
+  backgroundNames
+} from '../config/settings.js';
 import { PresetManager } from './PresetManager.js';
 
 /**
@@ -1714,10 +1722,61 @@ export class Editor {
     bar.addColor(c, 'colorBarGhost').name('受伤拖尾');
   }
 
+  /**
+   * The scene picker: one dropdown that swaps the whole look.
+   *
+   * Unlike every other control in this file, this one is not a live binding. A
+   * background is a *bundle* of values — sun, fill, rim, fog, floor, dust and
+   * the grade that ties them together — so writing the name alone would leave
+   * the scene lit for the previous background. The setter therefore calls
+   * `applyBackground`, which merges the preset in place, and then refreshes the
+   * panel, because one click just moved a few dozen sliders.
+   *
+   * The hint row is a disabled controller rather than a label: lil-gui has no
+   * sub-label, and a plain string controller is what the reaction families
+   * already use for read-only text.
+   */
+  _buildBackground(folder) {
+    // lil-gui maps `Object.keys(options)` to the menu labels and
+    // `Object.values(options)` to the values written back, so the menu is built
+    // label-first from the table's own declaration order and can never drift
+    // out of sync with it.
+    const options = {};
+    for (const name of backgroundNames()) options[BACKGROUNDS[name].label] = name;
+
+    // Both controls read through getters rather than holding a copy. A preset
+    // load rewrites `settings.environment.background` behind the panel's back,
+    // and `Editor#refresh` walks every controller — so a getter is the only
+    // shape that comes back correct after a load without a second code path.
+    const editor = this;
+    const state = {
+      get background() {
+        return settings.environment.background;
+      },
+      set background(name) {
+        // The name alone is not a look: `applyBackground` merges the whole
+        // bundle (sun, fill, rim, fog, floor, dust, grade) in place. One click
+        // therefore moves a few dozen sliders, so the panel is re-read.
+        if (applyBackground(name)) editor.refresh();
+      }
+    };
+
+    const info = {
+      get hint() {
+        return BACKGROUNDS[settings.environment.background]?.hint ?? '';
+      }
+    };
+
+    folder.add(state, 'background', options).name('场景背景');
+    folder.add(info, 'hint').name('说明').disable();
+  }
+
   _buildEnvironment() {
     const folder = this.gui.addFolder('环境');
     const e = settings.environment;
     const R = Editor.range;
+
+    this._buildBackground(folder);
 
     R(folder, e, 'sunIntensity', 0, 8, 0.01, '主光强度');
     folder.addColor(e, 'sunColor').name('主光颜色');
@@ -1750,6 +1809,16 @@ export class Editor {
     R(fog, e, 'dustAmount', 0, 3, 0.01, '浮尘量');
 
     const floor = folder.addFolder('舞台地面');
+    // The pattern and the background are separate on purpose — a sand floor
+    // under a night sky is a legitimate look — so the pattern gets its own
+    // control rather than being pinned to whichever preset is loaded.
+    floor
+      .add(
+        e,
+        'floorStyle',
+        Object.fromEntries(FLOOR_STYLES.map((s) => [FLOOR_STYLE_META[s]?.label ?? s, s]))
+      )
+      .name('地面图案');
     floor.add(e, 'floorTexture').name('石砖纹理');
     R(floor, e, 'floorTextureScale', 0.5, 24, 0.1, '砖块尺寸（米）');
     R(floor, e, 'floorNormalScale', 0, 3, 0.01, '浮雕强度');

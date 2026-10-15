@@ -72,7 +72,19 @@ export class InputManager extends EventEmitter {
   _onKeyDown = (event) => {
     if (event.repeat) return;
     const target = event.target;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+    // A focused control owns the keyboard: typing in a field, or navigating a
+    // dropdown with the arrow keys, must not also cast a spell. `SELECT` is in
+    // this list because the scene picker is one, and an open native menu still
+    // reports the select as the event target.
+    if (
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable)
+    ) {
+      return;
+    }
 
     this.keys.add(event.code);
 
