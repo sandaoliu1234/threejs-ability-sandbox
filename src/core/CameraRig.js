@@ -10,7 +10,10 @@ const _desiredTarget = new Vector3();
 /**
  * Third-person orbit rig.
  *
- * - Left mouse is reserved for drawing, so orbiting is bound to right-drag.
+ * - Orbiting is bound to **right-drag**. The bare left button is reserved for
+ *   casting, and the right button doubles as cancel — `InputManager` tells the
+ *   two apart by drag distance, so a right-click that barely moves still
+ *   cancels while a right-drag only swings the camera.
  * - The distance always resolves back to `settings.camera.distance`, so framing
  *   stays consistent no matter where the orbit target drifts. The wheel zooms by
  *   writing that same setting, which means zoom keeps working while the rig is
@@ -37,7 +40,11 @@ export class CameraRig {
     this.controls.maxPolarAngle = settings.camera.maxPolar;
     this.controls.rotateSpeed = 0.65;
 
-    // Free the left button for path drawing.
+    // Right-drag orbits and LEFT stays null, so a bare left-click still reaches
+    // InputManager as a cast. Right-click is deliberately NOT wired to cancel
+    // anymore: OrbitControls consumes the button for rotation, so a cancel on
+    // the same gesture would fire on every camera drag. InputManager now
+    // distinguishes the two by drag distance instead.
     this.controls.mouseButtons = { LEFT: null, MIDDLE: null, RIGHT: MOUSE.ROTATE };
     this.controls.touches = { ONE: null, TWO: TOUCH.DOLLY_ROTATE };
 
@@ -56,6 +63,9 @@ export class CameraRig {
 
     this.domElement = domElement;
     this._onWheel = this._onWheel.bind(this);
+
+    // Right-drag is the orbit gesture and needs no modifier, so the
+    // capture-phase keyboard tracking an earlier Ctrl binding required is gone.
     domElement.addEventListener('wheel', this._onWheel, { passive: false });
   }
 

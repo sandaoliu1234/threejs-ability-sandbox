@@ -2336,7 +2336,19 @@ export const settings = {
     // Crabs scuttle sideways along the tideline, half inside the shadow
     // camera's 26 m extent so their little shadows track them.
     crabs: 7,
-    crabSpeed: 0.55,
+    // Metres per second *along the tideline* — the real speed of the walk.
+    // The shader converts it to an angular amplitude by dividing by the
+    // radius, so a crab covers the same distance per second whatever the
+    // radius is. (It used to be an angular rate, which meant the crabs on the
+    // outside of the arc travelled further per second than the ones inside,
+    // and the peak speed at 26 m worked out to about 12 m/s — a car.)
+    //
+    // 0.34 m/s was still a brisk human walk, and the per-crab hash multiplies
+    // it by up to 1.3, so the fastest crab on the line sprinted at 0.44 m/s.
+    // A real shore crab scuttles in short bursts around 0.1–0.2 m/s, so this
+    // is parked at the top of that band: the line still reads as busy, but the
+    // motion is a scuttle rather than a hover-car.
+    crabSpeed: 0.16,
     crabInner: 24.5,
     crabOuter: 27.5,
     crabScale: 0.85,
@@ -2348,6 +2360,36 @@ export const settings = {
     gullHeight: 11.0,
     gullFlap: 2.4,
     gullScale: 1.0
+  },
+
+  /* ------------------------------------------------------------------ */
+  /* Beach props — palms and a leisure pocket on the dry sand.           */
+  /* ------------------------------------------------------------------ */
+  beachProps: {
+    enabled: false,
+    // Palms stand on the dry sand between the play radius and the tideline,
+    // so they frame the arena without ever standing in it.
+    palms: 9,
+    palmInner: 16.0,
+    palmOuter: 25.5,
+    palmScale: 1.0,
+    // Trunks lean out over the water like the ones on a postcard; the shader
+    // bends each trunk by its own hash so no two are the same shape.
+    palmLean: 0.34,
+    // The fronds rock very slightly — a still palm reads as a dead one.
+    frondSway: 0.05,
+    frondSwaySpeed: 0.5,
+    // One leisure pocket: a thatch parasol over a round deck with two loungers.
+    shade: 2,
+    // Metres from the centre — must clear the walkable arena (groundRadius 24)
+    // and stay short of the tideline the crabs work (ocean innerRadius 27), so
+    // the decks sit on open dry sand rather than underfoot or in the surf.
+    shadeRadius: 25.6,
+    shadeScale: 1.0,
+    shadeColor: '#d8bd82',
+    woodColor: '#c08a4e',
+    trunkColor: '#8a6a48',
+    frondColor: '#4f7a3a'
   },
 
   /* ------------------------------------------------------------------ */
@@ -2617,6 +2659,7 @@ export const BACKGROUNDS = {
     // its creatures rather than inheriting them from whatever was live before.
     ocean: { enabled: false },
     beachLife: { enabled: false },
+    beachProps: { enabled: false },
     post: { exposure: 1.05, temperature: -0.03, saturation: 1.08, vignette: 0.52, bloomStrength: 0.03 }
   },
 
@@ -2678,9 +2721,11 @@ export const BACKGROUNDS = {
       contactShadow: 0.34
     },
     // The dusk tide: the sea ring lights up from the low sun, crabs work the
-    // wet sand at the tideline and gulls wheel over the swell.
+    // wet sand at the tideline and gulls wheel over the swell. Palms and a
+    // shaded leisure pocket sit on the dry sand behind the arena.
     ocean: { enabled: true, seaColor: '#3d7a8e', deepColor: '#1a4a63', foamColor: '#f6e7c8' },
     beachLife: { enabled: true },
+    beachProps: { enabled: true },
     post: { exposure: 1.12, temperature: 0.14, saturation: 1.16, vignette: 0.34, bloomStrength: 0.32 }
   },
 
@@ -2736,6 +2781,7 @@ export const BACKGROUNDS = {
     },
     ocean: { enabled: false },
     beachLife: { enabled: false },
+    beachProps: { enabled: false },
     post: { exposure: 1.0, temperature: 0.2, saturation: 1.1, vignette: 0.42, bloomStrength: 0.24 }
   },
 
@@ -2792,6 +2838,7 @@ export const BACKGROUNDS = {
     },
     ocean: { enabled: false },
     beachLife: { enabled: false },
+    beachProps: { enabled: false },
     post: { exposure: 1.08, temperature: -0.16, saturation: 0.92, vignette: 0.4, bloomStrength: 0.3 }
   },
 
@@ -2833,6 +2880,7 @@ export const BACKGROUNDS = {
     },
     ocean: { enabled: false },
     beachLife: { enabled: false },
+    beachProps: { enabled: false },
     post: { exposure: 1.1, temperature: 0.16, saturation: 1.24, vignette: 0.62, bloomStrength: 0.5 }
   },
 
@@ -2876,6 +2924,7 @@ export const BACKGROUNDS = {
     },
     ocean: { enabled: false },
     beachLife: { enabled: false },
+    beachProps: { enabled: false },
     post: { exposure: 1.02, temperature: -0.12, saturation: 1.12, vignette: 0.58, bloomStrength: 0.42 }
   }
 };

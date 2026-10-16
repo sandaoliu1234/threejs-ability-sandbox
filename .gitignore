@@ -140,3 +140,18 @@ dist
 
 # Headless-Chrome test output: screenshots, run logs, CDP reports
 output/
+
+# Standalone Remotion promo-video project. Kept out of the repo entirely: its
+# node_modules/render output alone is ~600MB, and the public/ stills are ~28MB
+# of generated frames that this sandbox's source tree does not depend on.
+intro-video/
+
+# Throwaway probe scenarios. `tools/scenarios/` is tracked, but these were
+# written ad hoc while chasing individual bugs and are kept local on purpose —
+# only the commented, repeatable checks belong in the repo.
+tools/scenarios/beach-*.mjs
+tools/scenarios/shade-*.mjs
+tools/scenarios/palm-*.mjs
+tools/scenarios/pocket-*.mjs
+tools/scenarios/group-kids.mjs
+tools/scenarios/intro-stills.mjs

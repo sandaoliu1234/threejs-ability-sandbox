@@ -152,15 +152,26 @@ const CRAB_GLSL = /* glsl */ `
   float ch2 = hash11(aSeed * 29.71 + 4.17);
   float ch3 = hash11(aSeed * 53.39 + 11.3);
 
-  float cSpeed = uCrabSpeed * (0.7 + ch3 * 0.6);
-  float cTheta = ch1 * 6.2831 + sin(uTime * cSpeed + ch2 * 6.2831) * (0.35 + ch2 * 0.5);
+  // uCrabSpeed is metres per second along the tideline. The angular amplitude
+  // is derived from it — amp = walk / (omega * radius) — so the peak speed at
+  // the sand is exactly uCrabSpeed no matter how far out the crab is. The
+  // first version wrote the amplitude in radians and multiplied it by a 26 m
+  // radius, which put the crabs at roughly 12 m/s.
+  float cWalk = uCrabSpeed * (0.7 + ch3 * 0.6);
+  float cOmega = 0.22 * (0.8 + ch2 * 0.4);
+  float cRadRef = max(1.0, mix(uCrabInner, uCrabOuter, 0.5));
+  float cAmp = cWalk / (cOmega * cRadRef);
+
+  float cTheta = ch1 * 6.2831 + sin(uTime * cOmega + ch2 * 6.2831) * cAmp;
   // Each crab owns a personal arc of the tideline and drifts in and out with a
   // slow tide phase, so the line never reads as a bead chain.
-  float cRad = mix(uCrabInner, uCrabOuter, 0.5 + 0.5 * sin(uTime * cSpeed * 0.23 + ch2 * 6.2831));
+  float cRad = mix(uCrabInner, uCrabOuter, 0.5 + 0.5 * sin(uTime * 0.06 + ch2 * 6.2831));
 
   // Scuttle bounce: a quick double-step hop while the arc carries it along.
-  float cLift = (abs(sin(uTime * cSpeed * 7.0 + ch1 * 9.0)) * 0.05
-               + snoise01(vec3(aSeed * 41.0, uTime * 0.8, 3.0)) * 0.03) * uCrabBob;
+  // The step rate is its own clock, not a multiple of the walk — tying it to
+  // the walk made a slow crab take one step every three seconds.
+  float cLift = (abs(sin(uTime * (7.0 + cWalk * 6.0) + ch1 * 9.0)) * 0.045
+               + snoise01(vec3(aSeed * 41.0, uTime * 0.8, 3.0)) * 0.025) * uCrabBob;
 
   spPos = vec3(sin(cTheta) * cRad, cLift, cos(cTheta) * cRad);
   // The body faces radially, so the arc walk reads as the sideways scuttle it is.

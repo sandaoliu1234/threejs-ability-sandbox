@@ -62,6 +62,13 @@ export class Editor {
     // controls here that any folder left open pushes the rest off the screen,
     // so the panel opens as a list of sections and the user picks one.
     this.gui.foldersRecursive().forEach((folder) => folder.close());
+
+    // The panel itself also starts hidden so the sandbox opens on the scene
+    // rather than on 330px of controls. `_hidden` has to be kept in step with
+    // `toggle()`, which flips it — starting at `false` with a hidden GUI would
+    // make the first `G` press a no-op (it would set show(false) again).
+    this._hidden = true;
+    this.gui.hide();
   }
 
   /* ------------------------------------------------------------------ */
@@ -1864,6 +1871,25 @@ export class Editor {
     R(life, b, 'gullHeight', 4, 20, 0.1, '鸥高度');
     R(life, b, 'gullFlap', 0.5, 6, 0.01, '振翅频率');
     R(life, b, 'gullScale', 0.4, 1.6, 0.01, '鸥体型');
+
+    const props = folder.addFolder('海滩道具');
+    const p = settings.beachProps;
+    props.add(p, 'enabled').name('启用道具');
+    // Palms stand on the dry sand between the play radius (groundRadius 24)
+    // and the tideline, so the sliders bottom out inside the arena's edge.
+    R(props, p, 'palms', 0, 24, 1, '椰子树数量');
+    R(props, p, 'palmInner', 12, 30, 0.5, '椰林内圈');
+    R(props, p, 'palmOuter', 12, 34, 0.5, '椰林外圈');
+    R(props, p, 'palmScale', 0.5, 2, 0.01, '椰树体型');
+    R(props, p, 'palmLean', 0, 1, 0.01, '树干倾斜');
+    R(props, p, 'frondSway', 0, 0.3, 0.001, '叶片摇摆');
+    R(props, p, 'frondSwaySpeed', 0, 3, 0.01, '摇摆速度');
+    R(props, p, 'shade', 0, 6, 1, '遮阳伞数量');
+    R(props, p, 'shadeScale', 0.5, 2, 0.01, '遮阳伞体型');
+    props.addColor(p, 'shadeColor').name('草棚颜色');
+    props.addColor(p, 'woodColor').name('木料颜色');
+    props.addColor(p, 'trunkColor').name('树干颜色');
+    props.addColor(p, 'frondColor').name('叶片颜色');
   }
 
   _buildPost() {

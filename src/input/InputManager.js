@@ -15,6 +15,9 @@ import { EventEmitter } from '../utils/EventEmitter.js';
  * so dragging a slider never fires the ability.
  */
 export class InputManager extends EventEmitter {
+  /** Pixels of right-button travel still counted as a click, not an orbit. */
+  static DRAG_SLOP = 6;
+
   constructor(domElement) {
     super();
     this.dom = domElement;
@@ -52,9 +55,11 @@ export class InputManager extends EventEmitter {
     if (event.button === 0) {
       this.emit('pointer:confirm', this.pointer);
     } else if (event.button === 2) {
-      // Right button also orbits (OrbitControls owns the drag); putting an armed
-      // cast away on the same press is the convention players expect.
-      this.emit('action', 'cancel');
+      // Right-drag orbits, so a right-press can no longer cancel outright.
+      // Remember where it started and let `_onPointerUp` decide: a release
+      // that barely moved was a click (cancel), anything further was a camera
+      // drag. Capturing the coords also survives the pointer leaving the canvas.
+      this._rightDown = { x: event.clientX, y: event.clientY };
     }
   };
 
@@ -66,7 +71,19 @@ export class InputManager extends EventEmitter {
   /** The button came up anywhere — the hold abilities end on this. */
   _onPointerUp = (event) => {
     if (!this.enabled) return;
-    if (event.button === 0) this.emit('pointer:release');
+    if (event.button === 0) {
+      this.emit('pointer:release');
+    } else if (event.button === 2 && this._rightDown) {
+      const dx = event.clientX - this._rightDown.x;
+      const dy = event.clientY - this._rightDown.y;
+      this._rightDown = null;
+      // DRAG_SLOP is generous on purpose: an orbit that nudges the camera by a
+      // few pixels should still count as a click, not silently cancel the cast
+      // the player was aiming. Hand tremor on a trackpad sits well under 6 px.
+      if (Math.hypot(dx, dy) <= InputManager.DRAG_SLOP) {
+        this.emit('action', 'cancel');
+      }
+    }
   };
 
   _onKeyDown = (event) => {
